@@ -1,8 +1,18 @@
 //! Concrete backends and runtime selection.
 
+#[cfg(target_os = "linux")]
+pub mod gnome;
+#[cfg(target_os = "linux")]
+pub mod kde;
+#[cfg(target_os = "linux")]
+mod kde_protocols;
 pub mod mock;
+#[cfg(target_os = "linux")]
+mod wayland_util;
 #[cfg(windows)]
 pub mod windows;
+#[cfg(target_os = "linux")]
+pub mod wlr;
 #[cfg(target_os = "linux")]
 pub mod x11;
 #[cfg(target_os = "linux")]
@@ -10,7 +20,8 @@ pub mod xfce;
 
 use crate::backend::DisplayBackend;
 
-/// Environment variable that forces a backend by name: `mock` or `x11`.
+/// Environment variable that forces a backend by name: `mock`, `x11`,
+/// `wlroots`, `kde` or `gnome`.
 pub const BACKEND_ENV: &str = "DISPLAY_CHANGER_BACKEND";
 
 /// Picks the backend for the current session.
@@ -37,13 +48,52 @@ pub fn detect() -> Box<dyn DisplayBackend> {
             Err(e) => log::warn!("X11 backend unavailable: {e}"),
         }
     } else if wayland {
-        log::warn!("Wayland backends are not implemented yet");
+        match connect_wayland(forced.as_deref()) {
+            Ok(backend) => return backend,
+            Err(e) => log::warn!("no Wayland backend for this compositor: {e}"),
+        }
     }
-    if let Some(other) = forced.as_deref().filter(|f| !["mock", "x11"].contains(f)) {
+    if let Some(other) = forced
+        .as_deref()
+        .filter(|f| !["mock", "x11", "wlroots", "kde", "gnome"].contains(f))
+    {
         log::warn!("unknown backend {other:?}");
     }
     log::info!("falling back to the demo backend");
     Box::new(mock::MockBackend::new())
+}
+
+/// Probes by protocol support rather than by desktop name, so unknown
+/// compositors that implement a supported protocol just work.
+#[cfg(target_os = "linux")]
+fn connect_wayland(forced: Option<&str>) -> crate::Result<Box<dyn DisplayBackend>> {
+    let wants = |name: &str| forced.is_none() || forced == Some(name);
+    if wants("wlroots") {
+        match wlr::WlrBackend::connect() {
+            Ok(b) => return Ok(Box::new(b)),
+            Err(e) => log::debug!("wlroots: {e}"),
+        }
+    }
+    if wants("kde") {
+        match kde::KdeBackend::connect() {
+            Ok(b) => return Ok(Box::new(b)),
+            Err(e) => log::debug!("kde: {e}"),
+        }
+    }
+    if wants("gnome") {
+        match gnome::GnomeBackend::connect() {
+            Ok(b) => return Ok(Box::new(b)),
+            Err(e) => log::debug!("gnome: {e}"),
+        }
+    }
+    Err(crate::Error::Unsupported(
+        "no supported output-management protocol".into(),
+    ))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn connect_wayland(_: Option<&str>) -> crate::Result<Box<dyn DisplayBackend>> {
+    Err(crate::Error::Unsupported("Wayland is Linux-only".into()))
 }
 
 #[cfg(target_os = "linux")]

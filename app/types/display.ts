@@ -35,6 +35,8 @@ export interface MonitorInfo {
   rotations: Rotation[]
   /** Allowed scales; empty means any value the capabilities permit. */
   scales: number[]
+  /** Accepts arbitrary modes (virtual outputs); `modes` are suggestions. */
+  customModes: boolean
 }
 
 export interface OutputConfig {

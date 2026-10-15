@@ -157,7 +157,7 @@ fn find_monitor(id: &MonitorId, monitors: &[MonitorInfo], used: &[bool]) -> Opti
 /// Exact mode if available, otherwise the same resolution with the closest
 /// refresh rate, otherwise the monitor's preferred mode.
 fn closest_mode(wanted: &Mode, monitor: &MonitorInfo) -> Mode {
-    if monitor.modes.contains(wanted) {
+    if monitor.custom_modes || monitor.modes.contains(wanted) {
         return *wanted;
     }
     monitor

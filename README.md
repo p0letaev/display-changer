@@ -4,13 +4,17 @@ Monitor layout editor with profiles for Linux and Windows. Tauri 2 + Nuxt 4.
 
 ## Backends
 
-| Session | Backend | Status |
+| Session | Backend | How it was tested |
 |---|---|---|
-| X11 (XFCE, Cinnamon, MATE, i3, …) | XRandR via `x11rb` | done |
-| Wayland (wlroots, KDE, GNOME) | — | planned, falls back to demo |
-| Windows 10/11 | CCD API + ChangeDisplaySettingsEx | done (tested under Wine, see below) |
+| X11 (XFCE, Cinnamon, MATE, i3, …) | XRandR via `x11rb`, xfconf sync on XFCE | Xorg dummy driver, 3 outputs |
+| Wayland: Sway, Hyprland, river, labwc, Wayfire, niri, COSMIC | `wlr-output-management-unstable-v1` | headless Sway |
+| Wayland: KDE Plasma 6 | `kde_output_device_v2` / `kde_output_management_v2` (vendored XML, registry for 6.4+) | headless KWin 6.7 |
+| Wayland: GNOME | D-Bus `org.gnome.Mutter.DisplayConfig` | headless Mutter 50 |
+| Windows 10/11 | CCD API + `ChangeDisplaySettingsEx` | Wine (topology changes need real Windows) |
 
-Selection is automatic; `DISPLAY_CHANGER_BACKEND=mock|x11` overrides it.
+Selection is automatic and by protocol support, not desktop name, so other
+compositors implementing one of these protocols work too.
+`DISPLAY_CHANGER_BACKEND=mock|x11|wlroots|kde|gnome` overrides it.
 
 On XFCE the applied layout is also written to xfconf (`displays` channel),
 otherwise XFCE restores its own older layout on hotplug or login. Before the
@@ -50,6 +54,13 @@ scripts/x11-test-server.sh :96 stop
 
 `tests/xfconf_private.rs` describes how to test xfconf writes on a private D-Bus session.
 
+```sh
+scripts/wayland-test-servers.sh        # headless Sway, KWin and Mutter
+```
+
+Windows code is checked from Linux with `cargo xwin clippy --target x86_64-pc-windows-msvc`;
+unit tests and the `dump`/`apply` examples run under Wine.
+
 ## Profiles and hotkeys
 
 Profiles are stored in `~/.config/io.github.displaychanger/profiles.json`
@@ -57,4 +68,5 @@ Profiles are stored in `~/.config/io.github.displaychanger/profiles.json`
 
 - Applying from the UI reverts after 15 s unless confirmed; the timer runs in Rust.
 - Hotkeys apply a profile without confirmation, since it was saved from a working setup.
-- Global hotkeys work on X11 and Windows. Wayland does not allow global grabs.
+- Global hotkeys work on X11 and Windows. Wayland does not allow global grabs:
+  bind `display-changer apply "<profile>"` in your compositor instead.

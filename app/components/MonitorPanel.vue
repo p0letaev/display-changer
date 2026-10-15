@@ -19,19 +19,31 @@ const diagonal = computed(() => {
 const sameRes = (a: Mode, b: Mode) => a.width === b.width && a.height === b.height
 const resKey = (m: Mode) => `${m.width}x${m.height}`
 
+// Offered for virtual outputs that accept any mode.
+const COMMON_MODES: Mode[] = [
+  [3840, 2160], [2560, 1440], [1920, 1200], [1920, 1080], [1680, 1050], [1600, 900], [1366, 768], [1280, 720],
+].map(([width, height]) => ({ width: width!, height: height!, refreshMhz: 60_000 }))
+
+const availableModes = computed(() => {
+  const own = props.monitor?.modes ?? []
+  if (!props.monitor?.customModes) return own
+  const extra = COMMON_MODES.filter(c => !own.some(m => sameRes(m, c)))
+  return [...own, ...extra]
+})
+
 const resolutions = computed(() => {
   const seen = new Map<string, Mode>()
-  for (const m of props.monitor?.modes ?? []) if (!seen.has(resKey(m))) seen.set(resKey(m), m)
+  for (const m of availableModes.value) if (!seen.has(resKey(m))) seen.set(resKey(m), m)
   return [...seen.values()].sort((a, b) => b.width * b.height - a.width * a.height)
 })
 
 const refreshRates = computed(() =>
-  (props.monitor?.modes ?? [])
+  availableModes.value
     .filter(m => sameRes(m, props.output.mode))
     .sort((a, b) => b.refreshMhz - a.refreshMhz))
 
 function onResolution(key: string) {
-  const modes = (props.monitor?.modes ?? []).filter(m => resKey(m) === key)
+  const modes = availableModes.value.filter(m => resKey(m) === key)
   // Keep the refresh rate if the new resolution supports it, else take the highest.
   const mode = modes.find(m => m.refreshMhz === props.output.mode.refreshMhz)
     ?? modes.sort((a, b) => b.refreshMhz - a.refreshMhz)[0]

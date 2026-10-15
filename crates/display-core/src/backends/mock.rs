@@ -113,6 +113,7 @@ pub fn sample_state() -> DisplayState {
         }),
         rotations: Rotation::ALL.to_vec(),
         scales: Vec::new(),
+        custom_modes: false,
     };
     let dell = MonitorInfo {
         id: MonitorId {
@@ -139,6 +140,7 @@ pub fn sample_state() -> DisplayState {
         }),
         rotations: Rotation::ALL.to_vec(),
         scales: Vec::new(),
+        custom_modes: false,
     };
     let lg = MonitorInfo {
         id: MonitorId {
@@ -165,6 +167,7 @@ pub fn sample_state() -> DisplayState {
         }),
         rotations: Rotation::ALL.to_vec(),
         scales: Vec::new(),
+        custom_modes: false,
     };
 
     let layout = Layout {

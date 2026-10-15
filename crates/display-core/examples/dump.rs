@@ -4,7 +4,21 @@
 
 use display_core::backends;
 
+/// Prints backend log messages (detection reasons) to stderr.
+struct StderrLog;
+
+impl log::Log for StderrLog {
+    fn enabled(&self, _: &log::Metadata) -> bool {
+        true
+    }
+    fn log(&self, record: &log::Record) {
+        eprintln!("[{}] {}", record.level(), record.args());
+    }
+    fn flush(&self) {}
+}
+
 fn main() {
+    let _ = log::set_logger(&StderrLog).map(|()| log::set_max_level(log::LevelFilter::Debug));
     let backend = backends::detect();
     eprintln!("backend: {}", backend.name());
     match backend.current_state() {

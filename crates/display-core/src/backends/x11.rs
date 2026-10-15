@@ -269,6 +269,7 @@ impl X11Backend {
                     .filter(|r| o.rotations.contains(rotation_to_x(*r)))
                     .collect(),
                 scales: vec![1.0],
+                custom_modes: false,
                 id,
             });
             outputs.push(output);

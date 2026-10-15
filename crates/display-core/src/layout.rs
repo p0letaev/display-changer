@@ -117,7 +117,7 @@ pub fn validate(layout: &Layout, monitors: &[MonitorInfo], caps: &Capabilities) 
             }
             continue;
         }
-        if !monitor.modes.contains(&output.mode) {
+        if !monitor.custom_modes && !monitor.modes.contains(&output.mode) {
             issues.push(LayoutIssue::UnsupportedMode {
                 connector: connector.clone(),
                 mode: output.mode,
@@ -267,6 +267,7 @@ mod tests {
             preferred_mode: Some(mode(1920, 1080)),
             rotations: Rotation::ALL.to_vec(),
             scales: Vec::new(),
+            custom_modes: false,
         }
     }
 

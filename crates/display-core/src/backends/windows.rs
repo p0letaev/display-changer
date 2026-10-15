@@ -581,6 +581,7 @@ fn state_from(snap: &Snapshot) -> DisplayState {
             modes: t.modes.clone(),
             rotations: Rotation::ALL.to_vec(),
             scales: t.dpi.map(|d| d.scales()).unwrap_or_default(),
+            custom_modes: false,
         });
         outputs.push(match t.current {
             Some((mode, position, rotation)) => OutputConfig {

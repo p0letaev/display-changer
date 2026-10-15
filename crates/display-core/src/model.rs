@@ -79,6 +79,9 @@ pub struct MonitorInfo {
     /// Scales the platform allows for this monitor; empty means any value
     /// permitted by the backend capabilities.
     pub scales: Vec<f64>,
+    /// Accepts arbitrary modes (virtual outputs); `modes` are suggestions.
+    #[serde(default)]
+    pub custom_modes: bool,
 }
 
 /// Desired configuration of a single output.
