@@ -18,15 +18,23 @@ export interface Guide {
   y2: number
 }
 
+// Mirrors Capabilities::scaled_layout; set once the backend is known.
+let scaledLayout = true
+
+export function setScaledLayout(value: boolean) {
+  scaledLayout = value
+}
+
 export function logicalRect(output: OutputConfig): Rect {
   const swap = output.rotation === 'left' || output.rotation === 'right'
   const w = swap ? output.mode.height : output.mode.width
   const h = swap ? output.mode.width : output.mode.height
+  const scale = scaledLayout ? output.scale : 1
   return {
     x: output.position.x,
     y: output.position.y,
-    width: Math.round(w / output.scale),
-    height: Math.round(h / output.scale),
+    width: Math.round(w / scale),
+    height: Math.round(h / scale),
   }
 }
 

@@ -54,6 +54,7 @@ impl DisplayBackend for MockBackend {
             primary: true,
             disable: true,
             origin: OriginRule::TopLeft,
+            scaled_layout: true,
         }
     }
 
@@ -111,6 +112,7 @@ pub fn sample_state() -> DisplayState {
             refresh_mhz: 165_000,
         }),
         rotations: Rotation::ALL.to_vec(),
+        scales: Vec::new(),
     };
     let dell = MonitorInfo {
         id: MonitorId {
@@ -136,6 +138,7 @@ pub fn sample_state() -> DisplayState {
             refresh_mhz: 60_000,
         }),
         rotations: Rotation::ALL.to_vec(),
+        scales: Vec::new(),
     };
     let lg = MonitorInfo {
         id: MonitorId {
@@ -161,6 +164,7 @@ pub fn sample_state() -> DisplayState {
             refresh_mhz: 75_000,
         }),
         rotations: Rotation::ALL.to_vec(),
+        scales: Vec::new(),
     };
 
     let layout = Layout {

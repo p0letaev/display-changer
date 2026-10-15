@@ -1,6 +1,8 @@
 //! Concrete backends and runtime selection.
 
 pub mod mock;
+#[cfg(windows)]
+pub mod windows;
 #[cfg(target_os = "linux")]
 pub mod x11;
 #[cfg(target_os = "linux")]
@@ -19,6 +21,12 @@ pub fn detect() -> Box<dyn DisplayBackend> {
     let forced = std::env::var(BACKEND_ENV).ok();
     if forced.as_deref() == Some("mock") {
         return Box::new(mock::MockBackend::new());
+    }
+
+    #[cfg(windows)]
+    match windows::WindowsBackend::new() {
+        Ok(backend) => return Box::new(backend),
+        Err(e) => log::warn!("Windows backend unavailable: {e}"),
     }
 
     let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();

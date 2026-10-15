@@ -45,7 +45,10 @@ function onRefresh(mhz: string) {
 
 const scales = computed(() => {
   const c = caps.value
-  let list = !c?.scale ? [1] : c.fractionalScale ? [1, 1.25, 1.5, 1.75, 2, 2.5, 3] : [1, 2, 3]
+  const fromMonitor = props.monitor?.scales ?? []
+  let list = fromMonitor.length
+    ? [...fromMonitor]
+    : !c?.scale ? [1] : c.fractionalScale ? [1, 1.25, 1.5, 1.75, 2, 2.5, 3] : [1, 2, 3]
   if (!list.includes(props.output.scale)) list = [...list, props.output.scale].sort((a, b) => a - b)
   return list
 })

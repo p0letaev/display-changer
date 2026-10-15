@@ -33,6 +33,8 @@ export interface MonitorInfo {
   modes: Mode[]
   preferredMode: Mode | null
   rotations: Rotation[]
+  /** Allowed scales; empty means any value the capabilities permit. */
+  scales: number[]
 }
 
 export interface OutputConfig {
@@ -61,6 +63,8 @@ export interface Capabilities {
   primary: boolean
   disable: boolean
   origin: 'topLeft' | 'primary'
+  /** False on Windows: the desktop is in physical pixels regardless of scale. */
+  scaledLayout: boolean
 }
 
 export interface BackendInfo {

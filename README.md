@@ -8,7 +8,7 @@ Monitor layout editor with profiles for Linux and Windows. Tauri 2 + Nuxt 4.
 |---|---|---|
 | X11 (XFCE, Cinnamon, MATE, i3, …) | XRandR via `x11rb` | done |
 | Wayland (wlroots, KDE, GNOME) | — | planned, falls back to demo |
-| Windows | CCD API | planned |
+| Windows 10/11 | CCD API + ChangeDisplaySettingsEx | done (tested under Wine, see below) |
 
 Selection is automatic; `DISPLAY_CHANGER_BACKEND=mock|x11` overrides it.
 

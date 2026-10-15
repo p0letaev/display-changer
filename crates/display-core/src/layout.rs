@@ -50,16 +50,23 @@ impl Rect {
 
 /// Size of an output on the desktop: mode size, rotated, divided by scale.
 pub fn logical_rect(output: &OutputConfig) -> Rect {
+    desktop_rect(output, true)
+}
+
+/// Like [`logical_rect`], but ignores scale when the backend lays out the
+/// desktop in physical pixels (see [`Capabilities::scaled_layout`]).
+pub fn desktop_rect(output: &OutputConfig, scaled_layout: bool) -> Rect {
     let (w, h) = if output.rotation.swaps_axes() {
         (output.mode.height, output.mode.width)
     } else {
         (output.mode.width, output.mode.height)
     };
+    let scale = if scaled_layout { output.scale } else { 1.0 };
     Rect {
         x: output.position.x,
         y: output.position.y,
-        width: (f64::from(w) / output.scale).round() as i32,
-        height: (f64::from(h) / output.scale).round() as i32,
+        width: (f64::from(w) / scale).round() as i32,
+        height: (f64::from(h) / scale).round() as i32,
     }
 }
 
@@ -116,7 +123,12 @@ pub fn validate(layout: &Layout, monitors: &[MonitorInfo], caps: &Capabilities) 
                 mode: output.mode,
             });
         }
-        if !scale_allowed(output.scale, caps) {
+        let listed = monitor.scales.is_empty()
+            || monitor
+                .scales
+                .iter()
+                .any(|s| (s - output.scale).abs() < 1e-6);
+        if !scale_allowed(output.scale, caps) || !listed {
             issues.push(LayoutIssue::InvalidScale {
                 connector: connector.clone(),
                 scale: output.scale,
@@ -142,7 +154,10 @@ pub fn validate(layout: &Layout, monitors: &[MonitorInfo], caps: &Capabilities) 
         issues.push(LayoutIssue::PrimaryCount { count: primaries });
     }
 
-    let rects: Vec<Rect> = enabled.iter().map(|o| logical_rect(o)).collect();
+    let rects: Vec<Rect> = enabled
+        .iter()
+        .map(|o| desktop_rect(o, caps.scaled_layout))
+        .collect();
     for i in 0..rects.len() {
         for j in i + 1..rects.len() {
             if rects[i].overlaps(&rects[j]) {
@@ -222,6 +237,7 @@ mod tests {
         primary: true,
         disable: true,
         origin: OriginRule::TopLeft,
+        scaled_layout: true,
     };
 
     fn mode(width: u32, height: u32) -> Mode {
@@ -250,6 +266,7 @@ mod tests {
             modes: vec![mode(1920, 1080), mode(2560, 1440)],
             preferred_mode: Some(mode(1920, 1080)),
             rotations: Rotation::ALL.to_vec(),
+            scales: Vec::new(),
         }
     }
 

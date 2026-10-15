@@ -268,6 +268,7 @@ impl X11Backend {
                     .into_iter()
                     .filter(|r| o.rotations.contains(rotation_to_x(*r)))
                     .collect(),
+                scales: vec![1.0],
                 id,
             });
             outputs.push(output);
@@ -477,6 +478,7 @@ impl DisplayBackend for X11Backend {
             primary: true,
             disable: true,
             origin: OriginRule::TopLeft,
+            scaled_layout: true,
         }
     }
 

@@ -76,6 +76,9 @@ pub struct MonitorInfo {
     pub preferred_mode: Option<Mode>,
     /// Rotations the hardware can do for this monitor.
     pub rotations: Vec<Rotation>,
+    /// Scales the platform allows for this monitor; empty means any value
+    /// permitted by the backend capabilities.
+    pub scales: Vec<f64>,
 }
 
 /// Desired configuration of a single output.

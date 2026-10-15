@@ -10,6 +10,8 @@ pub struct EdidInfo {
     pub serial: Option<String>,
     /// Monitor name descriptor, e.g. `DELL U2723QE`.
     pub name: Option<String>,
+    /// Screen size in millimetres (EDID stores centimetres).
+    pub size_mm: Option<(u32, u32)>,
 }
 
 const HEADER: [u8; 8] = [0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00];
@@ -38,9 +40,12 @@ pub fn parse(bytes: &[u8]) -> Option<EdidInfo> {
     let product = u16::from_le_bytes([bytes[10], bytes[11]]);
     let numeric_serial = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
 
+    let size_mm = (bytes[21] > 0 && bytes[22] > 0)
+        .then(|| (u32::from(bytes[21]) * 10, u32::from(bytes[22]) * 10));
     let mut info = EdidInfo {
         vendor,
         product,
+        size_mm,
         ..Default::default()
     };
 
@@ -113,6 +118,11 @@ pub(crate) mod tests {
         assert_eq!(info.product, 0x4291);
         assert_eq!(info.name.as_deref(), Some("DELL U2723QE"));
         assert_eq!(info.serial.as_deref(), Some("7XQ2Y93"));
+        assert_eq!(info.size_mm, None);
+        let mut sized = edid;
+        sized[21] = 60;
+        sized[22] = 34;
+        assert_eq!(parse(&sized).unwrap().size_mm, Some((600, 340)));
     }
 
     #[test]

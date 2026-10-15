@@ -24,6 +24,10 @@ pub struct Capabilities {
     pub primary: bool,
     pub disable: bool,
     pub origin: OriginRule,
+    /// Whether scale shrinks an output on the desktop (Wayland, mock).
+    /// On Windows the desktop is in physical pixels and scale only affects
+    /// content size.
+    pub scaled_layout: bool,
 }
 
 pub trait DisplayBackend: Send + Sync {

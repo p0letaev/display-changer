@@ -78,6 +78,7 @@ export const useDisplayStore = defineStore('display', () => {
     try {
       const [backendInfo, displayState] = await Promise.all([api.backendInfo(), api.getState()])
       info.value = backendInfo
+      setScaledLayout(backendInfo.capabilities.scaledLayout)
       setState(displayState)
       await reloadProfiles()
       if (!subscribed) {
