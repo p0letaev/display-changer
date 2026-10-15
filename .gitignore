@@ -1,0 +1,21 @@
+# Rust
+/target/
+
+# Nuxt
+node_modules/
+.nuxt/
+.output/
+.data/
+.nitro/
+.cache/
+/dist
+
+# Misc
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+
+# Local release artifacts
+/builds/

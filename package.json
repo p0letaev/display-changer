@@ -1,0 +1,27 @@
+{
+  "name": "display-changer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "postinstall": "nuxt prepare",
+    "typecheck": "nuxt typecheck",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@pinia/nuxt": "^1.0.3",
+    "@tauri-apps/api": "^2.12.4",
+    "@vueuse/core": "^15.0.0",
+    "@vueuse/nuxt": "^15.0.0",
+    "nuxt": "^4.6.1",
+    "pinia": "^4.1.0",
+    "vue": "^3.5.44"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.3",
+    "@types/node": "^24.19.2",
+    "typescript": "^5.9.3",
+    "vue-tsc": "^3.3.13"
+  }
+}
