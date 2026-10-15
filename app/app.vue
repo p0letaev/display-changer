@@ -1,7 +1,21 @@
 <script setup lang="ts">
 const store = useDisplayStore()
+const settings = useSettingsStore()
+const showSettings = ref(false)
 
-onMounted(() => store.load())
+// Identify windows get their number injected by Rust before the page loads.
+const identify = (window as { __IDENTIFY__?: { number: number, name: string } }).__IDENTIFY__
+
+onMounted(() => {
+  if (identify) {
+    // Let the rounded badge float over the desktop where transparency works.
+    document.documentElement.style.background = 'transparent'
+    document.body.style.background = 'transparent'
+    return
+  }
+  settings.load()
+  store.load()
+})
 
 const sourceLabel = computed(() => {
   if (store.previewedProfile) return `Профиль «${store.previewedProfile.name}»`
@@ -19,15 +33,26 @@ const canUpdateProfile = computed(() => {
 </script>
 
 <template>
-  <div class="app">
+  <div v-if="identify" class="identify">
+    <strong>{{ identify.number }}</strong>
+    <span>{{ identify.name }}</span>
+  </div>
+
+  <div v-else class="app">
     <header class="topbar">
       <h1>Display Changer</h1>
       <span v-if="store.info" class="backend" :class="{ mock: store.info.name === 'mock' }">
         {{ store.info.name === 'mock' ? 'демо-данные' : store.info.name }}
       </span>
       <div class="spacer" />
+      <button :disabled="!store.state" title="Показать номер на каждом мониторе" @click="store.identify()">
+        Определить
+      </button>
       <button :disabled="store.loading || !!store.pending" @click="store.load()">
         Обновить
+      </button>
+      <button class="icon-btn" title="Настройки" aria-label="Настройки" @click="showSettings = true">
+        ⚙
       </button>
     </header>
 
@@ -103,11 +128,43 @@ const canUpdateProfile = computed(() => {
       </aside>
     </main>
 
+    <SettingsDialog v-if="showSettings" @close="showSettings = false" />
     <ToastHost />
   </div>
 </template>
 
 <style scoped>
+.identify {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 28px;
+  background: rgb(17 20 27 / 0.88);
+  border: 2px solid var(--accent);
+  color: #fff;
+  user-select: none;
+}
+
+.identify strong {
+  font-size: 160px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.identify span {
+  margin-top: 8px;
+  font: 18px var(--mono);
+  opacity: 0.75;
+}
+
+.icon-btn {
+  width: 34px;
+  padding: 6px 0;
+  font-size: 16px;
+}
+
 .app {
   height: 100%;
   display: flex;

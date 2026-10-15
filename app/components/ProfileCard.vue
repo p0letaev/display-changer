@@ -77,6 +77,7 @@ function overwrite() {
         <h3 v-else :title="profile.name" @dblclick.stop="startRename">
           {{ profile.name }}
         </h3>
+        <span v-if="profile.autoApply" class="auto" title="Применяется автоматически при подключении этих мониторов">авто</span>
         <span v-if="profile.active" class="dot" title="Сейчас применён" />
       </div>
 
@@ -94,6 +95,12 @@ function overwrite() {
             ⋯
           </button>
           <div v-if="menuOpen" class="menu" @click.stop>
+            <button
+              :title="'Применять, когда подключены именно эти мониторы (включите автопереключение в настройках)'"
+              @click="store.setAutoApply(profile.id, !profile.autoApply); menuOpen = false"
+            >
+              {{ profile.autoApply ? '✓ ' : '' }}Применять автоматически
+            </button>
             <button @click="overwrite">
               Сохранить раскладку из редактора
             </button>
@@ -183,6 +190,15 @@ h3 {
   border: 1px solid var(--accent);
   border-radius: 6px;
   padding: 1px 6px;
+}
+
+.auto {
+  flex: none;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .dot {

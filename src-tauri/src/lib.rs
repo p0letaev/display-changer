@@ -1,24 +1,35 @@
 mod apply;
+mod cli;
 mod commands;
 mod error;
 mod hotkeys;
+mod identify;
+mod paths;
 mod profiles;
+mod quick;
+mod settings;
+mod tray;
+mod watcher;
 
 use std::sync::{Arc, Mutex};
 
-use display_core::backends::{self, mock};
-use display_core::{DisplayBackend, Profile};
-use tauri::Manager;
+use display_core::DisplayBackend;
+use display_core::backends;
+use tauri::{Manager, WindowEvent};
 use tauri_plugin_global_shortcut::ShortcutState;
 
 use crate::apply::ApplyManager;
 use crate::hotkeys::HotkeyRegistry;
 use crate::profiles::ProfileStore;
+use crate::settings::Settings;
+
+pub use cli::run as run_cli;
 
 pub struct AppState {
     /// Shared with blocking tasks and timer threads.
     pub backend: Arc<dyn DisplayBackend>,
     pub profiles: Mutex<ProfileStore>,
+    pub settings: Mutex<Settings>,
     pub apply: ApplyManager,
     pub hotkeys: HotkeyRegistry,
 }
@@ -26,8 +37,14 @@ pub struct AppState {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let backend: Arc<dyn DisplayBackend> = Arc::from(backends::detect());
+    let settings = Settings::load(&paths::settings_file());
+    let minimized = settings.start_minimized || std::env::args().any(|a| a == "--minimized");
 
     tauri::Builder::default()
+        // Must be first: a second launch just brings the running window up.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            tray::show_main_window(app);
+        }))
         .plugin(
             tauri_plugin_log::Builder::default()
                 .level(if cfg!(debug_assertions) {
@@ -37,6 +54,11 @@ pub fn run() {
                 })
                 .build(),
         )
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--minimized"]),
+        ))
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -48,29 +70,41 @@ pub fn run() {
         )
         .setup(move |app| {
             log::info!("display backend: {}", backend.name());
-
-            // Demo profiles live in their own file so they never mix with real ones.
-            let is_mock = backend.name() == "mock";
-            let file = if is_mock {
-                "profiles.mock.json"
-            } else {
-                "profiles.json"
-            };
-            let seed: fn() -> Vec<Profile> = if is_mock {
-                mock::demo_profiles
-            } else {
-                Vec::new
-            };
-            let store = ProfileStore::load(app.path().app_config_dir()?.join(file), seed)?;
-
+            let store = profiles::open_store(backend.name())?;
             app.manage(AppState {
                 backend,
                 profiles: Mutex::new(store),
+                settings: Mutex::new(settings),
                 apply: ApplyManager::default(),
                 hotkeys: HotkeyRegistry::default(),
             });
             hotkeys::sync(app.handle());
+            if let Err(e) = tray::build(app.handle()) {
+                // No tray (e.g. no StatusNotifier host): keep the window reachable.
+                log::warn!("tray unavailable: {e}");
+                app.state::<AppState>()
+                    .settings
+                    .lock()
+                    .unwrap()
+                    .close_to_tray = false;
+            }
+            watcher::start(app.handle().clone());
+            if !minimized {
+                tray::show_main_window(app.handle());
+            }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let state = window.state::<AppState>();
+                if state.settings.lock().unwrap().close_to_tray {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::backend_info,
@@ -87,6 +121,11 @@ pub fn run() {
             commands::delete_profile,
             commands::set_profile_hotkey,
             commands::set_hotkeys_paused,
+            commands::get_settings,
+            commands::update_settings,
+            commands::export_profiles,
+            commands::import_profiles,
+            commands::identify_monitors,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

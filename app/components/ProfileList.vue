@@ -1,5 +1,10 @@
 <script setup lang="ts">
+import { onClickOutside } from '@vueuse/core'
+
 const store = useDisplayStore()
+const menuOpen = ref(false)
+const menu = ref<HTMLElement | null>(null)
+onClickOutside(menu, () => { menuOpen.value = false })
 
 const creating = ref(false)
 const name = ref('')
@@ -24,9 +29,22 @@ async function create() {
   <nav class="profiles">
     <header>
       <h2>Профили</h2>
-      <button class="add" title="Сохранить раскладку из редактора как профиль" @click="startCreate">
-        +
-      </button>
+      <div ref="menu" class="header-actions">
+        <button class="add" title="Импорт и экспорт" @click="menuOpen = !menuOpen">
+          ⋯
+        </button>
+        <button class="add" title="Сохранить раскладку из редактора как профиль" @click="startCreate">
+          +
+        </button>
+        <div v-if="menuOpen" class="menu">
+          <button @click="store.importProfiles(); menuOpen = false">
+            Импортировать из файла…
+          </button>
+          <button :disabled="!store.profiles.length" @click="store.exportProfiles(); menuOpen = false">
+            Экспортировать в файл…
+          </button>
+        </div>
+      </div>
     </header>
 
     <form v-if="creating" class="create" @submit.prevent="create">
@@ -86,6 +104,38 @@ h2 {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-muted);
+}
+
+.header-actions {
+  position: relative;
+  display: flex;
+  gap: 4px;
+}
+
+.menu {
+  position: absolute;
+  right: 0;
+  top: 34px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  padding: 4px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.3);
+}
+
+.menu button {
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 7px 10px;
+}
+
+.menu button:hover:not(:disabled) {
+  background: var(--surface-2);
 }
 
 .add {

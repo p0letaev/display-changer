@@ -96,6 +96,35 @@ impl ProfileStore {
     }
 }
 
+/// Opens the profile file for `backend`; the demo backend starts with demo profiles.
+pub fn open_store(backend: &str) -> io::Result<ProfileStore> {
+    let seed: fn() -> Vec<Profile> = if backend == "mock" {
+        display_core::backends::mock::demo_profiles
+    } else {
+        Vec::new
+    };
+    ProfileStore::load(crate::paths::profiles_file(backend), seed)
+}
+
+/// Adds profiles from another installation, giving them fresh ids and
+/// dropping hotkeys that would clash with existing ones.
+pub fn merge_imported(store: &mut ProfileStore, imported: Vec<Profile>) -> io::Result<usize> {
+    let taken: Vec<String> = store
+        .all()
+        .iter()
+        .filter_map(|p| p.hotkey.clone())
+        .collect();
+    let count = imported.len();
+    for mut p in imported {
+        p.id = new_profile_id();
+        if p.hotkey.as_ref().is_some_and(|h| taken.contains(h)) {
+            p.hotkey = None;
+        }
+        store.upsert(p)?;
+    }
+    Ok(count)
+}
+
 pub fn new_profile_id() -> String {
     static COUNTER: AtomicU32 = AtomicU32::new(0);
     let millis = SystemTime::now()
@@ -118,6 +147,7 @@ mod tests {
             name: id.into(),
             hotkey: None,
             layout: Layout::default(),
+            auto_apply: false,
         }
     }
 

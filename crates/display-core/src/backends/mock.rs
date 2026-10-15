@@ -235,6 +235,7 @@ pub fn demo_profiles() -> Vec<Profile> {
             name: name.into(),
             hotkey: hotkey.map(Into::into),
             layout: Layout { outputs },
+            auto_apply: false,
         };
 
     vec![

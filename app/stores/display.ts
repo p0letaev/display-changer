@@ -96,17 +96,35 @@ export const useDisplayStore = defineStore('display', () => {
 
   async function subscribe() {
     await api.onDisplayChanged((e) => {
-      if (e.reason === 'reverted') {
-        pending.value = null
-        toasts.info('Изменения отменены, вернули прежние настройки')
-      }
-      else if (e.profileName) {
-        toasts.success(`Профиль «${e.profileName}» применён`)
+      switch (e.reason) {
+        case 'reverted':
+          pending.value = null
+          toasts.info('Изменения отменены, вернули прежние настройки')
+          break
+        case 'quick':
+          toasts.success(`Профиль «${e.profileName}» применён`)
+          break
+        case 'auto':
+          toasts.success(`Мониторы изменились — применён профиль «${e.profileName}»`)
+          break
+        case 'monitors':
+          toasts.info('Набор подключённых мониторов изменился')
+          break
+        case 'external':
+          // Changed by the system or the CLI; keep the user's unsaved edits.
+          if (dirty.value) {
+            state.value = e.state
+            reloadProfiles()
+            return
+          }
+          break
       }
       setState(e.state)
       reloadProfiles()
     })
-    await api.onHotkeyFailed(e => toasts.error(`«${e.profileName}»: ${e.error}`))
+    // A tray/hotkey apply that needs confirmation in the window.
+    await api.onPending(outcome => afterApply(outcome))
+    await api.onQuickFailed(e => toasts.error(`«${e.profileName}»: ${e.error}`))
   }
 
   async function reloadProfiles() {
@@ -320,6 +338,27 @@ export const useDisplayStore = defineStore('display', () => {
     }
   }
 
+  async function setAutoApply(id: string, autoApply: boolean) {
+    if (await run(() => api.updateProfile(id, { autoApply }))) await reloadProfiles()
+  }
+
+  async function exportProfiles() {
+    const path = await run(() => api.exportProfiles())
+    if (path) toasts.success(`Профили сохранены в ${path}`)
+  }
+
+  async function importProfiles() {
+    const count = await run(() => api.importProfiles())
+    if (count) {
+      await reloadProfiles()
+      toasts.success(`Импортировано профилей: ${count}`)
+    }
+  }
+
+  async function identify() {
+    await run(() => api.identifyMonitors())
+  }
+
   async function pauseHotkeys(paused: boolean) {
     try {
       await api.setHotkeysPaused(paused)
@@ -337,6 +376,6 @@ export const useDisplayStore = defineStore('display', () => {
     moveOutput, finishMove, setMode, setScale, setRotation, setPrimary, setEnabled,
     applyDraft, confirmApply, revertApply,
     previewProfile, applyProfile, createProfile, overwriteProfile, renameProfile, deleteProfile,
-    setHotkey, pauseHotkeys,
+    setHotkey, pauseHotkeys, setAutoApply, exportProfiles, importProfiles, identify,
   }
 })

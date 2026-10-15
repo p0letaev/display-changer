@@ -3,11 +3,17 @@ use display_core::{Capabilities, DisplayState, Error, Layout, Profile, Resolved}
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
+use std::time::Duration;
+
+use tauri_plugin_autostart::ManagerExt as _;
+use tauri_plugin_dialog::DialogExt as _;
+
 use crate::AppState;
 use crate::apply::{ApplyOutcome, revert_and_notify};
 use crate::error::{CommandError, CommandResult};
-use crate::hotkeys;
-use crate::profiles::new_profile_id;
+use crate::profiles::{merge_imported, new_profile_id};
+use crate::settings::Settings;
+use crate::{hotkeys, identify, paths, tray};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,6 +45,10 @@ where
     })
     .await
     .map_err(|e| Error::Backend(format!("task failed: {e}")))?
+}
+
+fn confirm_timeout(state: &AppState) -> Duration {
+    Duration::from_secs(state.settings.lock().unwrap().confirm_timeout_secs)
 }
 
 pub fn resolve_profile(state: &AppState, id: &str) -> CommandResult<Resolved> {
@@ -75,7 +85,11 @@ pub async fn validate_layout(app: AppHandle, layout: Layout) -> CommandResult<()
 #[tauri::command]
 pub async fn apply_layout(app: AppHandle, layout: Layout) -> CommandResult<ApplyOutcome> {
     blocking(app, move |app, s| {
-        s.apply.apply_tentative(app, s.backend.as_ref(), &layout)
+        let outcome =
+            s.apply
+                .apply_tentative(app, s.backend.as_ref(), &layout, confirm_timeout(s))?;
+        tray::refresh(app);
+        Ok(outcome)
     })
     .await
 }
@@ -127,14 +141,21 @@ pub async fn preview_profile(app: AppHandle, id: String) -> CommandResult<Resolv
 pub async fn apply_profile(app: AppHandle, id: String) -> CommandResult<ApplyOutcome> {
     blocking(app, move |app, s| {
         let resolved = resolve_profile(s, &id)?;
-        s.apply
-            .apply_tentative(app, s.backend.as_ref(), &resolved.layout)
+        let outcome = s.apply.apply_tentative(
+            app,
+            s.backend.as_ref(),
+            &resolved.layout,
+            confirm_timeout(s),
+        )?;
+        tray::refresh(app);
+        Ok(outcome)
     })
     .await
 }
 
 #[tauri::command]
 pub fn create_profile(
+    app: AppHandle,
     state: State<'_, AppState>,
     name: String,
     layout: Layout,
@@ -144,27 +165,38 @@ pub fn create_profile(
         name,
         hotkey: None,
         layout,
+        auto_apply: false,
     };
     state.profiles.lock().unwrap().upsert(profile.clone())?;
+    tray::refresh(&app);
     Ok(profile)
 }
 
 #[tauri::command]
 pub fn update_profile(
+    app: AppHandle,
     state: State<'_, AppState>,
     id: String,
     name: Option<String>,
     layout: Option<Layout>,
+    auto_apply: Option<bool>,
 ) -> CommandResult<Profile> {
-    let mut store = state.profiles.lock().unwrap();
-    let mut profile = store.get(&id).cloned().ok_or(CommandError::NotFound(id))?;
-    if let Some(name) = name {
-        profile.name = name;
-    }
-    if let Some(layout) = layout {
-        profile.layout = layout;
-    }
-    store.upsert(profile.clone())?;
+    let profile = {
+        let mut store = state.profiles.lock().unwrap();
+        let mut profile = store.get(&id).cloned().ok_or(CommandError::NotFound(id))?;
+        if let Some(name) = name {
+            profile.name = name;
+        }
+        if let Some(layout) = layout {
+            profile.layout = layout;
+        }
+        if let Some(auto_apply) = auto_apply {
+            profile.auto_apply = auto_apply;
+        }
+        store.upsert(profile.clone())?;
+        profile
+    };
+    tray::refresh(&app);
     Ok(profile)
 }
 
@@ -175,6 +207,7 @@ pub fn delete_profile(app: AppHandle, state: State<'_, AppState>, id: String) ->
         return Err(CommandError::NotFound(id));
     }
     hotkeys::sync(&app);
+    tray::refresh(&app);
     Ok(())
 }
 
@@ -229,8 +262,15 @@ pub fn set_profile_hotkey(
         return Err(CommandError::Hotkey(error));
     }
 
-    let store = state.profiles.lock().unwrap();
-    Ok(store.get(&id).cloned().expect("profile exists"))
+    let profile = state
+        .profiles
+        .lock()
+        .unwrap()
+        .get(&id)
+        .cloned()
+        .expect("profile exists");
+    tray::refresh(&app);
+    Ok(profile)
 }
 
 /// Suspends global hotkeys while the UI records a new combination, so
@@ -243,4 +283,92 @@ pub fn set_hotkeys_paused(app: AppHandle, paused: bool) -> CommandResult<()> {
         hotkeys::sync(&app);
         Ok(())
     }
+}
+
+#[tauri::command]
+pub fn get_settings(app: AppHandle, state: State<'_, AppState>) -> Settings {
+    let mut settings = state.settings.lock().unwrap().clone();
+    // The OS entry is the source of truth; it can be removed outside the app.
+    if let Ok(enabled) = app.autolaunch().is_enabled() {
+        settings.autostart = enabled;
+    }
+    settings
+}
+
+#[tauri::command]
+pub fn update_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    settings: Settings,
+) -> CommandResult<Settings> {
+    let settings = settings.sanitized();
+    let autolaunch = app.autolaunch();
+    let result = if settings.autostart {
+        autolaunch.enable()
+    } else {
+        autolaunch.disable()
+    };
+    if let Err(e) = result {
+        log::warn!("autostart: {e}");
+    }
+    settings.save(&paths::settings_file())?;
+    *state.settings.lock().unwrap() = settings.clone();
+    Ok(settings)
+}
+
+/// Writes all profiles to a JSON file chosen by the user. Returns the path,
+/// or `None` if the dialog was cancelled.
+#[tauri::command]
+pub async fn export_profiles(app: AppHandle) -> CommandResult<Option<String>> {
+    blocking(app, |app, s| {
+        let Some(path) = app
+            .dialog()
+            .file()
+            .set_file_name("display-changer-profiles.json")
+            .add_filter("JSON", &["json"])
+            .blocking_save_file()
+        else {
+            return Ok(None);
+        };
+        let path = path
+            .into_path()
+            .map_err(|e| CommandError::Storage(std::io::Error::other(e.to_string())))?;
+        let profiles = s.profiles.lock().unwrap().all().to_vec();
+        let json = serde_json::to_string_pretty(&profiles).map_err(std::io::Error::other)?;
+        std::fs::write(&path, json)?;
+        Ok(Some(path.display().to_string()))
+    })
+    .await
+}
+
+/// Adds profiles from a JSON file chosen by the user. Returns how many were added.
+#[tauri::command]
+pub async fn import_profiles(app: AppHandle) -> CommandResult<usize> {
+    blocking(app, |app, s| {
+        let Some(path) = app
+            .dialog()
+            .file()
+            .add_filter("JSON", &["json"])
+            .blocking_pick_file()
+        else {
+            return Ok(0);
+        };
+        let path = path
+            .into_path()
+            .map_err(|e| CommandError::Storage(std::io::Error::other(e.to_string())))?;
+        let text = std::fs::read_to_string(path)?;
+        let imported: Vec<Profile> = serde_json::from_str(&text).map_err(|e| {
+            CommandError::Storage(std::io::Error::other(format!("not a profile file: {e}")))
+        })?;
+        let count = merge_imported(&mut s.profiles.lock().unwrap(), imported)?;
+        hotkeys::sync(app);
+        tray::refresh(app);
+        Ok(count)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn identify_monitors(app: AppHandle) -> CommandResult<()> {
+    blocking(app, |app, _| identify::show(app)).await
 }

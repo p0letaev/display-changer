@@ -4,16 +4,12 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
 use crate::AppState;
-use crate::apply::{CHANGED_EVENT, ChangeReason, DisplayChanged};
-use crate::commands::resolve_profile;
 use crate::error::{CommandError, CommandResult};
-
-pub const FAILED_EVENT: &str = "display://hotkey-failed";
+use crate::quick;
 
 #[derive(Default)]
 pub struct HotkeyRegistry {
@@ -31,13 +27,6 @@ impl HotkeyRegistry {
     fn profile_for(&self, shortcut: &Shortcut) -> Option<String> {
         self.bindings.lock().unwrap().get(&shortcut.id()).cloned()
     }
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct HotkeyFailed {
-    profile_name: String,
-    error: String,
 }
 
 /// Releases every global hotkey.
@@ -112,48 +101,7 @@ pub fn sync(app: &AppHandle) {
 
 /// Plugin handler: applies the bound profile on a background thread.
 pub fn on_pressed(app: &AppHandle, shortcut: &Shortcut) {
-    let Some(profile_id) = app.state::<AppState>().hotkeys.profile_for(shortcut) else {
-        return;
-    };
-    let app = app.clone();
-    std::thread::spawn(move || {
-        let state = app.state::<AppState>();
-        let name = state
-            .profiles
-            .lock()
-            .unwrap()
-            .get(&profile_id)
-            .map(|p| p.name.clone())
-            .unwrap_or_default();
-
-        let result = resolve_profile(&state, &profile_id).and_then(|resolved| {
-            state
-                .apply
-                .apply_final(state.backend.as_ref(), &resolved.layout)?;
-            Ok(state.backend.current_state()?)
-        });
-        match result {
-            Ok(display) => {
-                log::info!("hotkey applied profile {name:?}");
-                let _ = app.emit(
-                    CHANGED_EVENT,
-                    DisplayChanged {
-                        state: display,
-                        reason: ChangeReason::Hotkey,
-                        profile_name: Some(name),
-                    },
-                );
-            }
-            Err(error) => {
-                log::warn!("hotkey profile {name:?} failed: {error}");
-                let _ = app.emit(
-                    FAILED_EVENT,
-                    HotkeyFailed {
-                        profile_name: name,
-                        error: error.to_string(),
-                    },
-                );
-            }
-        }
-    });
+    if let Some(profile_id) = app.state::<AppState>().hotkeys.profile_for(shortcut) {
+        quick::spawn(app, profile_id, quick::Source::Hotkey);
+    }
 }

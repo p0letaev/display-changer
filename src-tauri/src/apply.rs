@@ -14,10 +14,12 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::AppState;
 use crate::error::CommandResult;
 
-pub const CONFIRM_TIMEOUT: Duration = Duration::from_secs(15);
+/// Display state changed for a reason other than the UI's own apply.
 pub const CHANGED_EVENT: &str = "display://changed";
+/// A quick apply is waiting for confirmation; carries an [`ApplyOutcome`].
+pub const PENDING_EVENT: &str = "display://pending";
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApplyOutcome {
     pub state: DisplayState,
@@ -25,11 +27,19 @@ pub struct ApplyOutcome {
     pub timeout_secs: u64,
 }
 
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ChangeReason {
+    /// An unconfirmed change was rolled back.
     Reverted,
-    Hotkey,
+    /// A profile was applied from a hotkey or the tray.
+    Quick,
+    /// A profile was applied because its monitors got connected.
+    Auto,
+    /// Monitors were connected or disconnected.
+    Monitors,
+    /// Something else (system settings, the CLI) changed the layout.
+    External,
 }
 
 #[derive(Clone, Serialize)]
@@ -38,6 +48,22 @@ pub struct DisplayChanged {
     pub state: DisplayState,
     pub reason: ChangeReason,
     pub profile_name: Option<String>,
+}
+
+pub fn notify(
+    app: &AppHandle,
+    state: DisplayState,
+    reason: ChangeReason,
+    profile_name: Option<String>,
+) {
+    let _ = app.emit(
+        CHANGED_EVENT,
+        DisplayChanged {
+            state,
+            reason,
+            profile_name,
+        },
+    );
 }
 
 struct Pending {
@@ -53,13 +79,14 @@ pub struct ApplyManager {
 }
 
 impl ApplyManager {
-    /// Applies `layout` and reverts it after [`CONFIRM_TIMEOUT`] unless
+    /// Applies `layout` and reverts it after `timeout` unless
     /// [`ApplyManager::confirm`] is called with the returned token.
     pub fn apply_tentative(
         &self,
         app: &AppHandle,
         backend: &dyn DisplayBackend,
         layout: &Layout,
+        timeout: Duration,
     ) -> CommandResult<ApplyOutcome> {
         let current = backend.current_state()?.layout;
         backend.apply(layout)?;
@@ -73,7 +100,7 @@ impl ApplyManager {
 
         let app = app.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(CONFIRM_TIMEOUT);
+            std::thread::sleep(timeout);
             let state = app.state::<AppState>();
             if let Some(previous) = state.apply.take(token) {
                 log::info!("apply {token} not confirmed, reverting");
@@ -84,12 +111,11 @@ impl ApplyManager {
         Ok(ApplyOutcome {
             state: backend.current_state()?,
             token,
-            timeout_secs: CONFIRM_TIMEOUT.as_secs(),
+            timeout_secs: timeout.as_secs(),
         })
     }
 
     /// Applies without a confirmation window and drops any pending revert.
-    /// Used for hotkeys: profiles were saved from a working setup.
     pub fn apply_final(&self, backend: &dyn DisplayBackend, layout: &Layout) -> CommandResult<()> {
         backend.apply(layout)?;
         *self.pending.lock().unwrap() = None;
@@ -98,6 +124,10 @@ impl ApplyManager {
 
     pub fn confirm(&self, token: u64) -> bool {
         self.take(token).is_some()
+    }
+
+    pub fn is_pending(&self) -> bool {
+        self.pending.lock().unwrap().is_some()
     }
 
     /// Removes the pending apply if `token` is still current.
@@ -116,16 +146,7 @@ pub fn revert_and_notify(app: &AppHandle, backend: &dyn DisplayBackend, previous
         log::error!("revert failed: {e}");
     }
     match backend.current_state() {
-        Ok(state) => {
-            let _ = app.emit(
-                CHANGED_EVENT,
-                DisplayChanged {
-                    state,
-                    reason: ChangeReason::Reverted,
-                    profile_name: None,
-                },
-            );
-        }
+        Ok(state) => notify(app, state, ChangeReason::Reverted, None),
         Err(e) => log::error!("cannot read state after revert: {e}"),
     }
 }

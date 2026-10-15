@@ -61,12 +61,26 @@ scripts/wayland-test-servers.sh        # headless Sway, KWin and Mutter
 Windows code is checked from Linux with `cargo xwin clippy --target x86_64-pc-windows-msvc`;
 unit tests and the `dump`/`apply` examples run under Wine.
 
+## Features
+
+- Drag-and-snap layout editor; resolution, refresh rate, scale, rotation, primary, on/off
+- Profiles matched to monitors by EDID, so they follow a monitor to another port
+- Apply with a countdown and automatic revert (5–120 s, configurable)
+- Global hotkeys and a tray menu for profiles; optional confirmation for these
+- Automatic switching: profiles marked "auto" apply when their monitors get connected
+- Changes made elsewhere (system settings, the CLI) show up in the window
+- "Identify" shows each monitor's number on that monitor
+- Import/export of profiles, autostart, start in tray, light/dark theme
+- CLI: `display-changer list | apply <name> | state`
+
 ## Profiles and hotkeys
 
-Profiles are stored in `~/.config/io.github.displaychanger/profiles.json`
-(`profiles.mock.json` for the demo backend, seeded with four demo profiles).
+Profiles and settings are stored in `~/.config/io.github.displaychanger/`
+(`%APPDATA%\io.github.displaychanger\` on Windows): `profiles.json`,
+`settings.json`; `profiles.mock.json` for the demo backend.
 
 - Applying from the UI reverts after 15 s unless confirmed; the timer runs in Rust.
-- Hotkeys apply a profile without confirmation, since it was saved from a working setup.
+- Hotkeys, the tray and automatic switching apply a profile without confirmation,
+  since it was saved from a working setup; a setting turns confirmation on.
 - Global hotkeys work on X11 and Windows. Wayland does not allow global grabs:
   bind `display-changer apply "<profile>"` in your compositor instead.

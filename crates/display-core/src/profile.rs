@@ -14,6 +14,9 @@ pub struct Profile {
     /// Accelerator in global-shortcut syntax, e.g. `Ctrl+Alt+Digit1`.
     pub hotkey: Option<String>,
     pub layout: Layout,
+    /// Apply automatically when exactly this set of monitors is connected.
+    #[serde(default)]
+    pub auto_apply: bool,
 }
 
 /// Something that differs between the saved profile and what will be applied.

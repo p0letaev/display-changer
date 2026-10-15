@@ -102,6 +102,7 @@ export interface Profile {
   name: string
   hotkey: string | null
   layout: Layout
+  autoApply: boolean
 }
 
 export interface ProfileEntry extends Profile {
@@ -130,11 +131,25 @@ export interface ApplyOutcome {
 
 export interface DisplayChanged {
   state: DisplayState
-  reason: 'reverted' | 'hotkey'
+  reason: 'reverted' | 'quick' | 'auto' | 'monitors' | 'external'
   profileName: string | null
 }
 
-export interface HotkeyFailed {
+export interface QuickFailed {
   profileName: string
   error: string
+}
+
+// Mirrors src-tauri/src/settings.rs.
+
+export type Theme = 'system' | 'light' | 'dark'
+
+export interface Settings {
+  confirmTimeoutSecs: number
+  confirmQuickApply: boolean
+  closeToTray: boolean
+  startMinimized: boolean
+  autostart: boolean
+  autoSwitch: boolean
+  theme: Theme
 }
