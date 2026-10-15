@@ -42,6 +42,8 @@ struct Device {
     model: String,
     serial: String,
     edid: Vec<u8>,
+    /// Name of the output this one mirrors (protocol v13+), or empty.
+    replication_source: String,
     physical: (i32, i32),
     position: (i32, i32),
     transform: i32,
@@ -230,11 +232,14 @@ impl Session {
                 scale: d.scale,
                 rotation: Transform::try_from(d.transform as u32)
                     .map_or(Rotation::Normal, rotation_from_transform),
-                primary: primary.as_deref() == Some(d.name.as_str()),
+                primary: primary.as_deref() == Some(d.name.as_str())
+                    && d.replication_source.is_empty(),
+                mirror_of: Some(d.replication_source.clone())
+                    .filter(|s| !s.is_empty() && *s != d.name),
             });
         }
-        if !outputs.iter().any(|o| o.enabled && o.primary)
-            && let Some(first) = outputs.iter_mut().find(|o| o.enabled)
+        if !outputs.iter().any(|o| o.is_placed() && o.primary)
+            && let Some(first) = outputs.iter_mut().find(|o| o.is_placed())
         {
             first.primary = true;
         }
@@ -282,6 +287,10 @@ impl Session {
             config.transform(proxy, transform_from_rotation(wanted.rotation) as i32);
             config.position(proxy, wanted.position.x, wanted.position.y);
             config.scale(proxy, wanted.scale);
+            if version >= 13 {
+                // Empty clears a previous mirror.
+                config.set_replication_source(proxy, wanted.mirror_of.clone().unwrap_or_default());
+            }
             if version >= 3 {
                 config.set_priority(proxy, priority);
                 priority += 1;
@@ -312,12 +321,17 @@ impl Session {
     }
 }
 
-pub struct KdeBackend;
+pub struct KdeBackend {
+    /// `set_replication_source` needs kde_output_management_v2 v13.
+    mirror: bool,
+}
 
 impl KdeBackend {
     pub fn connect() -> Result<Self> {
-        Session::open()?;
-        Ok(Self)
+        let session = Session::open()?;
+        Ok(Self {
+            mirror: session.management.version() >= 13,
+        })
     }
 }
 
@@ -335,6 +349,7 @@ impl DisplayBackend for KdeBackend {
             disable: true,
             origin: OriginRule::TopLeft,
             scaled_layout: true,
+            mirror: self.mirror,
         }
     }
 
@@ -453,6 +468,7 @@ impl Dispatch<KdeOutputDeviceV2, ()> for State {
             Event::Enabled { enabled } => d.enabled = enabled != 0,
             Event::SerialNumber { serialNumber } => d.serial = serialNumber,
             Event::Name { name } => d.name = name,
+            Event::ReplicationSource { source } => d.replication_source = source,
             _ => {}
         }
     }

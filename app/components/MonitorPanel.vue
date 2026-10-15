@@ -74,8 +74,20 @@ const rotations: { value: Rotation, label: string, icon: string }[] = [
 
 const isPreferred = (m: Mode) => !!props.monitor?.preferredMode && sameRes(props.monitor.preferredMode, m)
 const canDisable = computed(() =>
-  !!caps.value?.disable && (!props.output.enabled || store.issues.enabledCount > 1))
+  !!caps.value?.disable
+  && (!props.output.enabled || !!props.output.mirrorOf || store.issues.enabledCount > 1))
 const rect = computed(() => logicalRect(props.output))
+
+// Screens this one can repeat: other screens with a place of their own.
+const mirrorSources = computed(() =>
+  store.outputs.filter(o => isPlaced(o) && o.id.connector !== connector.value))
+const sourceName = (c: string) => store.state?.monitors.find(m => m.id.connector === c)?.name ?? c
+
+function onDisplayMode(mirror: boolean) {
+  if (!mirror) return store.setMirror(connector.value, null)
+  const primary = mirrorSources.value.find(o => o.primary) ?? mirrorSources.value[0]
+  if (primary) store.setMirror(connector.value, primary.id.connector)
+}
 </script>
 
 <template>
@@ -102,13 +114,39 @@ const rect = computed(() => logicalRect(props.output))
         Включён
       </label>
       <button
-        v-if="caps?.primary"
+        v-if="caps?.primary && !output.mirrorOf"
         class="ghost"
         :disabled="!output.enabled || output.primary"
         @click="store.setPrimary(connector)"
       >
         {{ output.primary ? '★ Основной' : 'Сделать основным' }}
       </button>
+    </div>
+
+    <div v-if="caps?.mirror && output.enabled" class="field">
+      <span>Отображение</span>
+      <div class="chips">
+        <button :class="{ on: !output.mirrorOf }" @click="onDisplayMode(false)">
+          Отдельный экран
+        </button>
+        <button
+          :class="{ on: !!output.mirrorOf }"
+          :disabled="!mirrorSources.length"
+          title="Показывать то же, что на другом мониторе"
+          @click="onDisplayMode(true)"
+        >
+          ⧉ Повтор
+        </button>
+      </div>
+      <select
+        v-if="output.mirrorOf"
+        :value="output.mirrorOf"
+        @change="store.setMirror(connector, ($event.target as HTMLSelectElement).value)"
+      >
+        <option v-for="o in mirrorSources" :key="o.id.connector" :value="o.id.connector">
+          Повторять {{ sourceName(o.id.connector) }} ({{ o.id.connector }})
+        </option>
+      </select>
     </div>
 
     <fieldset :disabled="!output.enabled">
@@ -162,7 +200,7 @@ const rect = computed(() => logicalRect(props.output))
       </div>
     </fieldset>
 
-    <dl>
+    <dl v-if="!output.mirrorOf">
       <dt>Позиция</dt>
       <dd>{{ output.position.x }}, {{ output.position.y }}</dd>
       <dt>Логический размер</dt>

@@ -55,6 +55,7 @@ impl DisplayBackend for MockBackend {
             disable: true,
             origin: OriginRule::TopLeft,
             scaled_layout: true,
+            mirror: true,
         }
     }
 
@@ -184,6 +185,7 @@ pub fn sample_state() -> DisplayState {
                 scale: 1.25,
                 rotation: Rotation::Normal,
                 primary: false,
+                mirror_of: None,
             },
             OutputConfig {
                 id: dell.id.clone(),
@@ -197,6 +199,7 @@ pub fn sample_state() -> DisplayState {
                 scale: 1.5,
                 rotation: Rotation::Normal,
                 primary: true,
+                mirror_of: None,
             },
             OutputConfig {
                 id: lg.id.clone(),
@@ -210,6 +213,7 @@ pub fn sample_state() -> DisplayState {
                 scale: 1.0,
                 rotation: Rotation::Left,
                 primary: false,
+                mirror_of: None,
             },
         ],
     };

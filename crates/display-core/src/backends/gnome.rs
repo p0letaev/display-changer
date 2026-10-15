@@ -146,15 +146,23 @@ impl GnomeBackend {
                 .iter()
                 .find(|l| l.5.iter().any(|s| &s.0 == connector));
             outputs.push(match lm {
-                Some(l) => OutputConfig {
-                    id,
-                    enabled: true,
-                    position: Position { x: l.0, y: l.1 },
-                    mode: to_mode(base),
-                    scale: l.2,
-                    rotation: rotation_from(l.3),
-                    primary: l.4,
-                },
+                Some(l) => {
+                    // Several monitors in one logical monitor mirror the first.
+                    let mirror_of =
+                        l.5.first()
+                            .map(|s| s.0.clone())
+                            .filter(|first| first != connector);
+                    OutputConfig {
+                        id,
+                        enabled: true,
+                        position: Position { x: l.0, y: l.1 },
+                        mode: to_mode(base),
+                        scale: l.2,
+                        rotation: rotation_from(l.3),
+                        primary: l.4 && mirror_of.is_none(),
+                        mirror_of,
+                    }
+                }
                 None => OutputConfig {
                     id,
                     enabled: false,
@@ -163,6 +171,7 @@ impl GnomeBackend {
                     scale: base.4.max(1.0),
                     rotation: Rotation::Normal,
                     primary: false,
+                    mirror_of: None,
                 },
             });
         }
@@ -182,13 +191,12 @@ impl GnomeBackend {
             bool,
             Vec<(String, String, HashMap<String, Value<'a>>)>,
         );
-        let mut logical: Vec<LogicalArg> = Vec::new();
-        for o in target.enabled() {
+        let mode_id = |o: &crate::model::OutputConfig| -> Result<String> {
             let (_, modes, _) = monitors
                 .iter()
                 .find(|(spec, ..)| spec.0 == o.id.connector)
                 .ok_or_else(|| Error::Backend(format!("{} disappeared", o.id.connector)))?;
-            let mode_id = modes
+            modes
                 .iter()
                 .find(|m| {
                     m.1 as u32 == o.mode.width
@@ -196,14 +204,25 @@ impl GnomeBackend {
                         && refresh_mhz(m.3) == o.mode.refresh_mhz
                 })
                 .map(|m| m.0.clone())
-                .ok_or_else(|| Error::Backend(format!("{}: mode vanished", o.id.connector)))?;
+                .ok_or_else(|| Error::Backend(format!("{}: mode vanished", o.id.connector)))
+        };
+        // One logical monitor per placed output; its mirrors join it.
+        let mut logical: Vec<LogicalArg> = Vec::new();
+        for o in target.placed() {
+            let mut members = vec![(o.id.connector.clone(), mode_id(o)?, HashMap::new())];
+            for m in target
+                .enabled()
+                .filter(|m| m.mirror_of.as_deref() == Some(&o.id.connector))
+            {
+                members.push((m.id.connector.clone(), mode_id(m)?, HashMap::new()));
+            }
             logical.push((
                 o.position.x,
                 o.position.y,
                 o.scale,
                 transform_from(o.rotation),
                 o.primary,
-                vec![(o.id.connector.clone(), mode_id, HashMap::new())],
+                members,
             ));
         }
         let props: HashMap<String, Value> = HashMap::new();
@@ -234,6 +253,7 @@ impl DisplayBackend for GnomeBackend {
             disable: true,
             origin: OriginRule::TopLeft,
             scaled_layout: self.scaled_layout,
+            mirror: true,
         }
     }
 

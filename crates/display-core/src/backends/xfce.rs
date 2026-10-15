@@ -270,6 +270,7 @@ mod tests {
             scale: 1.0,
             rotation: Rotation::Right,
             primary: true,
+            mirror_of: None,
         }
     }
 

@@ -45,6 +45,13 @@ const canUpdateProfile = computed(() => {
         {{ store.info.name === 'mock' ? 'демо-данные' : store.info.name }}
       </span>
       <div class="spacer" />
+      <button
+        :disabled="!store.state || store.busy"
+        title="Вернуть раскладку, которая была до последнего изменения (Пробел + Alt + →)"
+        @click="store.resetLayout()"
+      >
+        Сброс
+      </button>
       <button :disabled="!store.state" title="Показать номер на каждом мониторе" @click="store.identify()">
         Определить
       </button>

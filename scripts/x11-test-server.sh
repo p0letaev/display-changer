@@ -66,6 +66,7 @@ for mode in 1920x1080 1024x768; do xrandr --addmode DUMMY1 "$mode"; done
 xrandr --addmode DUMMY1 1280x720
 xrandr --output DUMMY1 --mode 1280x720 --right-of DUMMY0
 xrandr --addmode DUMMY2 1024x768
+xrandr --addmode DUMMY2 1920x1080
 xrandr --output DUMMY2 --mode 1024x768 --right-of DUMMY1
 xrandr --output DUMMY2 --off
 xrandr | grep -E '^DUMMY[0-2] '

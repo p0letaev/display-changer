@@ -52,10 +52,10 @@ function onTimeout(e: Event) {
         </label>
         <label class="row">
           <span>
-            Подтверждать профили из трея и по хоткею
-            <small>По умолчанию они применяются сразу — они сохранены с рабочих настроек</small>
+            Аварийный сброс: Пробел + Alt + →
+            <small>Возвращает раскладку, которая была до последнего изменения. Профили из трея и по хоткею применяются сразу, без отсчёта</small>
           </span>
-          <input type="checkbox" :checked="s.confirmQuickApply" @change="store.update({ confirmQuickApply: ($event.target as HTMLInputElement).checked })">
+          <input type="checkbox" :checked="s.resetCombo" @change="store.update({ resetCombo: ($event.target as HTMLInputElement).checked })">
         </label>
         <label class="row">
           <span>

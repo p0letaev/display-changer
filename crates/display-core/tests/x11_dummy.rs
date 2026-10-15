@@ -126,6 +126,27 @@ fn reconfigures_three_outputs_and_restores() {
     assert!(matches!(x.apply(&l), Err(Error::InvalidLayout(_))));
     assert_eq!(x.current_state().unwrap().layout, s);
 
+    // E: DUMMY2 repeats DUMMY0 at the same resolution.
+    let mut l = s.clone();
+    *out(&mut l, "DUMMY2") = OutputConfig {
+        enabled: true,
+        mode: FHD,
+        mirror_of: Some("DUMMY0".into()),
+        ..get(&s, "DUMMY2").clone()
+    };
+    if x.current_state()
+        .unwrap()
+        .monitor("DUMMY2")
+        .unwrap()
+        .modes
+        .contains(&FHD)
+    {
+        x.apply(&l).unwrap();
+        let m = x.current_state().unwrap().layout;
+        assert_eq!(get(&m, "DUMMY2").mirror_of.as_deref(), Some("DUMMY0"));
+        assert_eq!(get(&m, "DUMMY2").position, get(&m, "DUMMY0").position);
+    }
+
     // Back to the start.
     x.apply(&before.layout).unwrap();
     assert_eq!(x.current_state().unwrap().layout, before.layout);

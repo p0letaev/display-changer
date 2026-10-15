@@ -72,7 +72,7 @@ pub fn desktop_rect(output: &OutputConfig, scaled_layout: bool) -> Rect {
 
 /// Bounding box of all enabled outputs, or `None` if none are enabled.
 pub fn bounding_box(layout: &Layout) -> Option<Rect> {
-    let mut rects = layout.enabled().map(logical_rect);
+    let mut rects = layout.placed().map(logical_rect);
     let first = rects.next()?;
     let (mut x0, mut y0, mut x1, mut y1) = (first.x, first.y, first.right(), first.bottom());
     for r in rects {
@@ -141,9 +141,30 @@ pub fn validate(layout: &Layout, monitors: &[MonitorInfo], caps: &Capabilities) 
                 connector: connector.clone(),
             });
         }
+        if let Some(source) = &output.mirror_of {
+            if !caps.mirror {
+                issues.push(LayoutIssue::MirrorUnsupported {
+                    connector: connector.clone(),
+                });
+            }
+            // The source must be a placed output: no mirrors of mirrors.
+            let ok = source != connector && layout.output(source).is_some_and(|s| s.is_placed());
+            if !ok {
+                issues.push(LayoutIssue::InvalidMirrorSource {
+                    connector: connector.clone(),
+                    source_name: source.clone(),
+                });
+            }
+            if output.primary {
+                issues.push(LayoutIssue::MirrorPrimary {
+                    connector: connector.clone(),
+                });
+            }
+        }
     }
 
-    let enabled: Vec<&OutputConfig> = layout.enabled().collect();
+    // Mirrors sit on their source and take no part in the geometry checks.
+    let enabled: Vec<&OutputConfig> = layout.placed().collect();
     if enabled.is_empty() {
         issues.push(LayoutIssue::NoEnabledOutputs);
         return Err(Error::InvalidLayout(issues));
@@ -222,6 +243,18 @@ pub fn normalize(layout: &Layout, rule: OriginRule) -> Layout {
         o.position.x -= dx;
         o.position.y -= dy;
     }
+    // A mirror shows its source's area, so it takes the source's position.
+    let positions: Vec<(String, crate::model::Position)> = out
+        .placed()
+        .map(|o| (o.id.connector.clone(), o.position))
+        .collect();
+    for o in &mut out.outputs {
+        if let Some(source) = &o.mirror_of
+            && let Some((_, p)) = positions.iter().find(|(c, _)| c == source)
+        {
+            o.position = *p;
+        }
+    }
     out
 }
 
@@ -238,6 +271,7 @@ mod tests {
         disable: true,
         origin: OriginRule::TopLeft,
         scaled_layout: true,
+        mirror: true,
     };
 
     fn mode(width: u32, height: u32) -> Mode {
@@ -280,6 +314,7 @@ mod tests {
             scale: 1.0,
             rotation: Rotation::Normal,
             primary,
+            mirror_of: None,
         }
     }
 
@@ -377,6 +412,47 @@ mod tests {
             outputs: vec![output("A", 0, 0, true), b],
         };
         assert!(validate(&layout, &[monitor("A"), monitor("B")], &CAPS).is_ok());
+    }
+
+    #[test]
+    fn mirror_ignores_geometry_and_follows_source() {
+        let mut b = output("B", 5000, 5000, false);
+        b.mirror_of = Some("A".into());
+        let layout = Layout {
+            outputs: vec![output("A", 100, 50, true), b],
+        };
+        assert!(validate(&layout, &[monitor("A"), monitor("B")], &CAPS).is_ok());
+        let n = normalize(&layout, OriginRule::TopLeft);
+        assert_eq!(n.outputs[1].position, n.outputs[0].position);
+        assert_eq!(bounding_box(&layout).unwrap().width, 1920);
+    }
+
+    #[test]
+    fn rejects_bad_mirrors() {
+        let monitors = [monitor("A"), monitor("B"), monitor("C")];
+        // Mirror of a mirror, mirror as primary, unsupported backend.
+        let mut b = output("B", 0, 0, true);
+        b.mirror_of = Some("A".into());
+        let mut c = output("C", 0, 0, false);
+        c.mirror_of = Some("B".into());
+        let layout = Layout {
+            outputs: vec![output("A", 0, 0, false), b, c],
+        };
+        let caps = Capabilities {
+            mirror: false,
+            ..CAPS
+        };
+        let found = issues(validate(&layout, &monitors, &caps));
+        assert!(found.contains(&LayoutIssue::MirrorPrimary {
+            connector: "B".into()
+        }));
+        assert!(found.contains(&LayoutIssue::InvalidMirrorSource {
+            connector: "C".into(),
+            source_name: "B".into()
+        }));
+        assert!(found.contains(&LayoutIssue::MirrorUnsupported {
+            connector: "B".into()
+        }));
     }
 
     #[test]

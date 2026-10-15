@@ -50,7 +50,7 @@ fi
 
 if [[ "$which" == all || "$which" == gnome ]]; then
   "${clean_env[@]}" dbus-run-session -- sh -c '
-    mutter --headless --virtual-monitor 1920x1080 --virtual-monitor 1280x720 >"$1/mutter.log" 2>&1 &
+    mutter --headless --virtual-monitor 1920x1080 --virtual-monitor 1920x1080 >"$1/mutter.log" 2>&1 &
     for _ in $(seq 40); do
       gdbus introspect --session --dest org.gnome.Mutter.DisplayConfig \
         --object-path /org/gnome/Mutter/DisplayConfig >/dev/null 2>&1 && break

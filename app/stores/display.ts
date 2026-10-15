@@ -110,20 +110,25 @@ export const useDisplayStore = defineStore('display', () => {
         case 'monitors':
           toasts.info('Набор подключённых мониторов изменился')
           break
+        case 'reset':
+          toasts.info('Сброс: вернули прежнюю раскладку')
+          break
         case 'external':
           // Changed by the system or the CLI; keep the user's unsaved edits.
           if (dirty.value) {
+            if (!e.pending) pending.value = null
             state.value = e.state
             reloadProfiles()
             return
           }
           break
       }
+      // The backend is the authority on whether a change awaits confirmation:
+      // a hotkey or reset supersedes a pending apply without a revert event.
+      if (!e.pending) pending.value = null
       setState(e.state)
       reloadProfiles()
     })
-    // A tray/hotkey apply that needs confirmation in the window.
-    await api.onPending(outcome => afterApply(outcome))
     await api.onQuickFailed(e => toasts.error(`«${e.profileName}»: ${e.error}`))
   }
 
@@ -213,21 +218,61 @@ export const useDisplayStore = defineStore('display', () => {
     for (const o of outputs.value) o.primary = o.id.connector === connector
   }
 
+  /**
+   * Makes `connector` repeat `source`, or (with null) a separate screen again.
+   * A mirror takes the source's resolution when it has one.
+   */
+  function setMirror(connector: string, source: string | null) {
+    const o = find(connector)
+    if (!o || !draft.value) return
+    if (source) {
+      const src = find(source)
+      if (!src) return
+      if (o.primary) {
+        o.primary = false
+        src.primary = true
+      }
+      // Whatever mirrored this output now mirrors the new source.
+      for (const m of outputs.value) if (m.mirrorOf === connector) m.mirrorOf = source
+      o.mirrorOf = source
+      o.enabled = true
+      o.position = { ...src.position }
+      const monitor = state.value?.monitors.find(m => m.id.connector === connector)
+      const same = monitor?.modes.find(m => m.width === src.mode.width && m.height === src.mode.height)
+      if (same) o.mode = { ...same }
+    }
+    else {
+      o.mirrorOf = null
+      const box = boundingBox(outputs.value.filter(x => isPlaced(x) && x !== o).map(logicalRect))
+      o.position = box ? { x: box.x + box.width, y: box.y } : { x: 0, y: 0 }
+    }
+    repair(draft.value.outputs, source ? [] : [connector])
+  }
+
   function setEnabled(connector: string, enabled: boolean) {
     const o = find(connector)
     if (!o || !draft.value || o.enabled === enabled) return
     if (enabled) {
-      const box = boundingBox(outputs.value.filter(x => x.enabled).map(logicalRect))
+      const box = boundingBox(outputs.value.filter(isPlaced).map(logicalRect))
       o.position = box ? { x: box.x + box.width, y: box.y } : { x: 0, y: 0 }
       o.enabled = true
       if (!outputs.value.some(x => x.enabled && x.primary)) o.primary = true
     }
     else {
-      if (issues.value.enabledCount <= 1) return
+      if (isPlaced(o) && issues.value.enabledCount <= 1) return
       o.enabled = false
+      // Mirrors of a switched-off screen become screens of their own.
+      for (const m of outputs.value) {
+        if (m.mirrorOf === connector) {
+          m.mirrorOf = null
+          const box = boundingBox(outputs.value.filter(x => isPlaced(x) && x !== m).map(logicalRect))
+          m.position = box ? { x: box.x + box.width, y: box.y } : { x: 0, y: 0 }
+        }
+      }
+      o.mirrorOf = null
       if (o.primary) {
         o.primary = false
-        const next = outputs.value.find(x => x.enabled)
+        const next = outputs.value.find(isPlaced)
         if (next) next.primary = true
       }
     }
@@ -355,6 +400,10 @@ export const useDisplayStore = defineStore('display', () => {
     }
   }
 
+  async function resetLayout() {
+    await run(() => api.resetLayout())
+  }
+
   async function identify() {
     await run(() => api.identifyMonitors())
   }
@@ -373,7 +422,7 @@ export const useDisplayStore = defineStore('display', () => {
     caps, outputs, selectedOutput, selectedMonitor, dirty, issues, issueMessages, canApply,
     previewedProfile,
     load, resetDraft, select,
-    moveOutput, finishMove, setMode, setScale, setRotation, setPrimary, setEnabled,
+    moveOutput, finishMove, setMode, setScale, setRotation, setPrimary, setEnabled, setMirror, resetLayout,
     applyDraft, confirmApply, revertApply,
     previewProfile, applyProfile, createProfile, overwriteProfile, renameProfile, deleteProfile,
     setHotkey, pauseHotkeys, setAutoApply, exportProfiles, importProfiles, identify,

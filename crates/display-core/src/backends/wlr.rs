@@ -195,6 +195,8 @@ impl Session {
                     .transform
                     .map_or(Rotation::Normal, rotation_from_transform),
                 primary: false,
+                // wlr-output-management cannot express mirroring.
+                mirror_of: None,
             });
         }
         DisplayState {
@@ -284,6 +286,7 @@ impl DisplayBackend for WlrBackend {
             disable: true,
             origin: OriginRule::TopLeft,
             scaled_layout: true,
+            mirror: false,
         }
     }
 

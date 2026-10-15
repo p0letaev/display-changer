@@ -90,6 +90,13 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&MenuItem::with_id(
         app,
+        "reset",
+        "Сбросить раскладку (Пробел + Alt + →)",
+        true,
+        None::<&str>,
+    )?)?;
+    menu.append(&MenuItem::with_id(
+        app,
         "show",
         "Открыть Display Changer",
         true,
@@ -108,6 +115,7 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "show" => show_main_window(app),
+        "reset" => crate::reset::spawn(app),
         "quit" => app.exit(0),
         _ => {
             if let Some(profile) = id.strip_prefix(PROFILE_PREFIX) {

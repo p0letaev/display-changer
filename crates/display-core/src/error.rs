@@ -44,6 +44,15 @@ pub enum LayoutIssue {
     Overlap { a: String, b: String },
     #[error("{connector}: not adjacent to the rest of the layout")]
     Detached { connector: String },
+    #[error("{connector}: mirroring is not supported")]
+    MirrorUnsupported { connector: String },
+    #[error("{connector}: cannot mirror {source_name}")]
+    InvalidMirrorSource {
+        connector: String,
+        source_name: String,
+    },
+    #[error("{connector}: a mirror cannot be the primary output")]
+    MirrorPrimary { connector: String },
 }
 
 fn format_issues(issues: &[LayoutIssue]) -> String {

@@ -69,8 +69,27 @@ fn moves_scales_rotates_switches_primary_and_restores() {
     assert!((get(&s, c).scale - 1.25).abs() < 1e-3);
     assert_eq!(get(&s, a).rotation, Rotation::Left);
 
+    // Mirror (KWin replication, protocol v13+).
+    if b.capabilities().mirror {
+        let mut l = s.clone();
+        set(&mut l, a, |o| {
+            o.rotation = Rotation::Normal;
+            o.mirror_of = Some(c.to_string());
+            o.primary = false;
+        });
+        b.apply(&l).unwrap();
+        assert_eq!(
+            get(&b.current_state().unwrap().layout, a)
+                .mirror_of
+                .as_deref(),
+            Some(c)
+        );
+    }
+    let s = b.current_state().unwrap().layout;
+
     // Off.
     let mut l = s.clone();
+    set(&mut l, a, |o| o.mirror_of = None);
     set(&mut l, a, |o| o.enabled = false);
     b.apply(&l).unwrap();
     assert!(!get(&b.current_state().unwrap().layout, a).enabled);

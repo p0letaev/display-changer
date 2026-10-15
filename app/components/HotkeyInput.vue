@@ -7,10 +7,26 @@ const props = defineProps<{
 }>()
 
 const store = useDisplayStore()
+const settings = useSettingsStore()
 const button = ref<HTMLButtonElement | null>(null)
 const recording = ref(false)
 const held = ref<string[]>([])
 const message = ref<string | null>(null)
+
+// While recording, keys are taken at window level in the capture phase, so
+// focus and WebView shortcuts (Alt menus, browser accelerators) cannot eat them.
+function listen(on: boolean) {
+  if (on) {
+    window.addEventListener('keydown', onKeydown, true)
+    window.addEventListener('keyup', onKeyup, true)
+    window.addEventListener('pointerdown', onOutside, true)
+  }
+  else {
+    window.removeEventListener('keydown', onKeydown, true)
+    window.removeEventListener('keyup', onKeyup, true)
+    window.removeEventListener('pointerdown', onOutside, true)
+  }
+}
 
 async function start() {
   if (recording.value) return
@@ -19,16 +35,27 @@ async function start() {
   recording.value = true
   // Otherwise pressing an already bound combination would switch profiles.
   await store.pauseHotkeys(true)
+  listen(true)
 }
 
 async function stop() {
   if (!recording.value) return
+  listen(false)
   recording.value = false
   held.value = []
   await store.pauseHotkeys(false)
 }
 
+function onOutside(e: PointerEvent) {
+  if (!button.value?.contains(e.target as Node)) stop()
+}
+
+onUnmounted(() => {
+  if (recording.value) stop()
+})
+
 async function save(hotkey: string | null) {
+  listen(false)
   recording.value = false
   held.value = []
   message.value = await store.setHotkey(props.profileId, hotkey)
@@ -47,6 +74,8 @@ function onKeydown(e: KeyboardEvent) {
   const result = recordKey(e)
   if (result.type === 'pending') held.value = result.modifiers
   else if (result.type === 'invalid') message.value = result.reason
+  else if (result.accelerator === 'Alt+ArrowRight' && settings.settings?.resetCombo)
+    message.value = 'Alt + → занято аварийным сбросом (Пробел + Alt + →)'
   else save(result.accelerator)
 }
 
@@ -76,9 +105,6 @@ const error = computed(() => message.value ?? props.registrationError)
       :class="{ recording, empty: !hotkey, failed: !!registrationError && !recording }"
       :title="recording ? 'Esc — отмена, Backspace — убрать хоткей' : 'Назначить хоткей'"
       @click.stop="start"
-      @keydown="onKeydown"
-      @keyup="onKeyup"
-      @blur="stop"
     >
       <template v-if="recording">
         <template v-if="held.length">

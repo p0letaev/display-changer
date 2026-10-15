@@ -30,7 +30,7 @@ const disabled = computed(() => props.outputs.filter(o => !o.enabled))
 // while dragging (so the scene does not rescale under the cursor) and then
 // animates to the new bounds.
 const fitted = computed<number[]>(() => {
-  const box = boundingBox(props.outputs.filter(o => o.enabled).map(logicalRect))
+  const box = boundingBox(props.outputs.filter(isPlaced).map(logicalRect))
   if (!box) return [0, 0, 1920, 1080]
   const pad = Math.max(box.width, box.height) * 0.15
   return [box.x - pad, box.y - pad, box.width + pad * 2, box.height + pad * 2]
@@ -51,7 +51,11 @@ const items = computed(() =>
       const rect = logicalRect(output)
       return { output, index, rect, s: Math.min(rect.width, rect.height, unit.value * 45) / 100 }
     })
-    .filter(item => item.output.enabled))
+    .filter(item => isPlaced(item.output)))
+
+// Mirrors have no place on the canvas; they are listed on their source.
+const mirrors = computed(() => props.outputs.filter(o => o.enabled && o.mirrorOf))
+const mirrorsOf = (connector: string) => mirrors.value.filter(m => m.mirrorOf === connector)
 
 function toLogical(e: PointerEvent): DOMPoint {
   const ctm = svg.value!.getScreenCTM()!
@@ -139,6 +143,15 @@ function onPointerUp(e: PointerEvent) {
         <text class="caption" :x="rect.width / 2" :y="rect.height / 2 + s * 26" :font-size="s * 7.5">
           {{ formatResolution(output.mode) }} · {{ formatRefresh(output.mode.refreshMhz) }}
         </text>
+        <text
+          v-if="mirrorsOf(output.id.connector).length"
+          class="mirror"
+          :x="rect.width / 2"
+          :y="rect.height / 2 + s * 38"
+          :font-size="s * 7"
+        >
+          ⧉ {{ mirrorsOf(output.id.connector).map(m => m.id.connector).join(', ') }}
+        </text>
         <text v-if="output.primary" class="star" :x="unit * 2.4" :y="unit * 3.4" :font-size="unit * 2.4">
           ★
         </text>
@@ -154,6 +167,18 @@ function onPointerUp(e: PointerEvent) {
         :y2="g.y2"
       />
     </svg>
+
+    <div v-if="mirrors.length" class="disabled">
+      <span>Повтор:</span>
+      <button
+        v-for="o in mirrors"
+        :key="o.id.connector"
+        :class="{ active: o.id.connector === selected }"
+        @click="emit('select', o.id.connector)"
+      >
+        {{ o.id.connector }} ⧉ {{ o.mirrorOf }}
+      </button>
+    </div>
 
     <div v-if="disabled.length" class="disabled">
       <span>Отключены:</span>
@@ -244,6 +269,11 @@ text {
 
 .star {
   fill: var(--primary-badge);
+}
+
+.mirror {
+  fill: var(--accent);
+  font-family: var(--mono);
 }
 
 .guide {

@@ -4,7 +4,7 @@ import type { Layout } from '~/types/display'
 const props = defineProps<{ layout: Layout }>()
 
 const rects = computed(() =>
-  props.layout.outputs.filter(o => o.enabled).map(o => ({ rect: logicalRect(o), primary: o.primary })))
+  props.layout.outputs.filter(isPlaced).map(o => ({ rect: logicalRect(o), primary: o.primary })))
 
 const viewBox = computed(() => {
   const box = boundingBox(rects.value.map(r => r.rect))

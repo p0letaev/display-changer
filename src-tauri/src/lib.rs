@@ -7,6 +7,7 @@ mod identify;
 mod paths;
 mod profiles;
 mod quick;
+mod reset;
 mod settings;
 mod tray;
 mod watcher;
@@ -126,6 +127,7 @@ pub fn run() {
             commands::export_profiles,
             commands::import_profiles,
             commands::identify_monitors,
+            commands::reset_layout,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

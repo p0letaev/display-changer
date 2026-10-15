@@ -10,7 +10,7 @@
 //! The Windows desktop is laid out in physical pixels: scale changes content
 //! size, not monitor rectangles (`scaled_layout = false`).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::mem::size_of;
 use std::sync::Mutex;
 
@@ -583,15 +583,24 @@ fn state_from(snap: &Snapshot) -> DisplayState {
             scales: t.dpi.map(|d| d.scales()).unwrap_or_default(),
             custom_modes: false,
         });
+        // Cloned targets share one source; the first one is the original.
+        let clone_of = t.source.and_then(|src| {
+            snap.targets
+                .iter()
+                .take_while(|other| other.key != t.key)
+                .find(|other| other.current.is_some() && other.source == Some(src))
+                .map(|other| other.connector.clone())
+        });
         outputs.push(match t.current {
             Some((mode, position, rotation)) => OutputConfig {
                 id,
                 enabled: true,
-                primary: position == Position::default(),
+                primary: clone_of.is_none() && position == Position::default(),
                 position,
                 mode,
                 scale: t.dpi.map_or(1.0, |d| d.current()),
                 rotation,
+                mirror_of: clone_of,
             },
             None => OutputConfig {
                 id,
@@ -601,6 +610,7 @@ fn state_from(snap: &Snapshot) -> DisplayState {
                 scale: 1.0,
                 rotation: Rotation::Normal,
                 primary: false,
+                mirror_of: None,
             },
         });
     }
@@ -613,54 +623,76 @@ fn state_from(snap: &Snapshot) -> DisplayState {
 /// Step 1: turn monitors on and off. Keeps current paths and picks a free
 /// source for newly enabled targets. Returns whether anything was requested.
 fn apply_topology(snap: &Snapshot, target: &Layout) -> Result<bool> {
-    let wanted: HashSet<TargetKey> = snap
-        .targets
-        .iter()
-        .filter(|t| target.output(&t.connector).is_some_and(|o| o.enabled))
-        .map(|t| t.key)
+    let key_of = |connector: &str| {
+        snap.targets
+            .iter()
+            .find(|t| t.connector == connector)
+            .map(|t| t.key)
+    };
+    let source_key = |p: &DISPLAYCONFIG_PATH_INFO| {
+        let a = p.sourceInfo.adapterId;
+        (a.LowPart, a.HighPart, p.sourceInfo.id)
+    };
+    // Placed outputs need a source of their own; mirrors share their original's.
+    let placed: Vec<TargetKey> = target
+        .placed()
+        .filter_map(|o| key_of(&o.id.connector))
         .collect();
-    let current: HashSet<TargetKey> = snap
-        .targets
-        .iter()
-        .filter(|t| t.active.is_some())
-        .map(|t| t.key)
+    let mirrors: Vec<(TargetKey, TargetKey)> = target
+        .enabled()
+        .filter_map(|o| Some((key_of(&o.id.connector)?, key_of(o.mirror_of.as_deref()?)?)))
         .collect();
-    if wanted == current {
+    let active_path = |key: TargetKey| snap.active.iter().find(|p| TargetKey::of(p) == key);
+
+    let wanted: HashSet<TargetKey> = placed
+        .iter()
+        .chain(mirrors.iter().map(|(m, _)| m))
+        .copied()
+        .collect();
+    let current: HashSet<TargetKey> = snap.active.iter().map(TargetKey::of).collect();
+    let placed_sources: HashSet<_> = placed
+        .iter()
+        .filter_map(|k| active_path(*k).map(source_key))
+        .collect();
+    let unchanged = wanted == current
+        && placed_sources.len() == placed.len()
+        && mirrors.iter().all(|(m, src)| {
+            matches!((active_path(*m), active_path(*src)), (Some(a), Some(b)) if source_key(a) == source_key(b))
+        });
+    if unchanged {
         return Ok(false);
     }
 
-    let mut paths: Vec<DISPLAYCONFIG_PATH_INFO> = snap
-        .active
-        .iter()
-        .filter(|p| wanted.contains(&TargetKey::of(p)))
-        .copied()
-        .collect();
-    let mut used_sources: HashMap<(u32, i32), HashSet<u32>> = HashMap::new();
-    for p in &paths {
-        let a = p.sourceInfo.adapterId;
-        used_sources
-            .entry((a.LowPart, a.HighPart))
-            .or_default()
-            .insert(p.sourceInfo.id);
-    }
-    for key in wanted.difference(&current) {
-        let candidate = snap.all_paths.iter().find(|p| {
-            let a = p.sourceInfo.adapterId;
-            TargetKey::of(p) == *key
-                && !used_sources
-                    .get(&(a.LowPart, a.HighPart))
-                    .is_some_and(|s| s.contains(&p.sourceInfo.id))
+    let mut paths: Vec<DISPLAYCONFIG_PATH_INFO> = Vec::new();
+    let mut used: HashSet<(u32, i32, u32)> = HashSet::new();
+    for key in &placed {
+        let reuse = active_path(*key).filter(|p| !used.contains(&source_key(p)));
+        let path = reuse.or_else(|| {
+            snap.all_paths
+                .iter()
+                .find(|p| TargetKey::of(p) == *key && !used.contains(&source_key(p)))
         });
-        let Some(path) = candidate else {
+        let Some(path) = path else {
             return Err(Error::Unsupported(
                 "no free display source for a monitor".into(),
             ));
         };
-        let a = path.sourceInfo.adapterId;
-        used_sources
-            .entry((a.LowPart, a.HighPart))
-            .or_default()
-            .insert(path.sourceInfo.id);
+        used.insert(source_key(path));
+        paths.push(*path);
+    }
+    for (mirror, original) in &mirrors {
+        let source = paths
+            .iter()
+            .find(|p| TargetKey::of(p) == *original)
+            .map(source_key)
+            .ok_or_else(|| Error::Backend("mirror source is not active".into()))?;
+        let path = snap
+            .all_paths
+            .iter()
+            .find(|p| TargetKey::of(p) == *mirror && source_key(p) == source)
+            .ok_or_else(|| {
+                Error::Unsupported("the graphics adapter cannot mirror these monitors".into())
+            })?;
         paths.push(*path);
     }
     // Let Windows choose modes for the new topology; step 2 sets them.
@@ -688,7 +720,8 @@ fn apply_topology(snap: &Snapshot, target: &Layout) -> Result<bool> {
 fn apply_modes(snap: &Snapshot, target: &Layout) -> Result<()> {
     let mut changes = Vec::new();
     for t in &snap.targets {
-        let Some(wanted) = target.output(&t.connector).filter(|o| o.enabled) else {
+        // Mirrors show their source's desktop; the source's mode drives them.
+        let Some(wanted) = target.output(&t.connector).filter(|o| o.is_placed()) else {
             continue;
         };
         let gdi = t.gdi.clone().ok_or_else(|| {
@@ -756,7 +789,7 @@ fn apply_modes(snap: &Snapshot, target: &Layout) -> Result<()> {
 /// Step 3: per-monitor DPI scale.
 fn apply_scale(snap: &Snapshot, target: &Layout) -> Result<()> {
     for t in &snap.targets {
-        let Some(wanted) = target.output(&t.connector).filter(|o| o.enabled) else {
+        let Some(wanted) = target.output(&t.connector).filter(|o| o.is_placed()) else {
             continue;
         };
         let (Some(dpi), Some((adapter, source))) = (t.dpi, t.source) else {
@@ -782,6 +815,15 @@ fn detach_legacy(snap: &Snapshot, target: &Layout) -> Result<()> {
         let (true, Some(gdi)) = (off, &t.gdi) else {
             continue;
         };
+        // A clone shares its GDI device with monitors that stay on.
+        let shared = snap.targets.iter().any(|other| {
+            other.key != t.key
+                && other.gdi.as_ref() == Some(gdi)
+                && target.output(&other.connector).is_some_and(|o| o.enabled)
+        });
+        if shared {
+            continue;
+        }
         let mut dm = DEVMODEW {
             dmSize: size_of::<DEVMODEW>() as u16,
             ..Default::default()
@@ -857,6 +899,7 @@ impl DisplayBackend for WindowsBackend {
             disable: true,
             origin: OriginRule::Primary,
             scaled_layout: false,
+            mirror: true,
         }
     }
 

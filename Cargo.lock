@@ -810,7 +810,7 @@ dependencies = [
 
 [[package]]
 name = "display-changer"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dirs 6.0.0",
  "display-core",
@@ -826,11 +826,12 @@ dependencies = [
  "tauri-plugin-single-instance",
  "thiserror 2.0.21",
  "windows",
+ "x11rb",
 ]
 
 [[package]]
 name = "display-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "bitflags 2.13.2",

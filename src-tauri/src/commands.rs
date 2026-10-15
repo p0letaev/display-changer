@@ -228,6 +228,9 @@ pub fn set_profile_hotkey(
             .ok_or_else(|| CommandError::NotFound(id.clone()))?;
 
         if let Some(accelerator) = &hotkey {
+            if hotkeys::is_reserved(&app, accelerator) {
+                return Err(CommandError::Hotkey(hotkeys::RESERVED.into()));
+            }
             let wanted = hotkeys::parse(accelerator)?.id();
             let taken_by = store.all().iter().find(|p| {
                 p.id != id
@@ -313,6 +316,8 @@ pub fn update_settings(
     }
     settings.save(&paths::settings_file())?;
     *state.settings.lock().unwrap() = settings.clone();
+    // The reset combination may have been switched on or off.
+    hotkeys::sync(&app);
     Ok(settings)
 }
 
@@ -371,4 +376,10 @@ pub async fn import_profiles(app: AppHandle) -> CommandResult<usize> {
 #[tauri::command]
 pub async fn identify_monitors(app: AppHandle) -> CommandResult<()> {
     blocking(app, |app, _| identify::show(app)).await
+}
+
+/// The emergency reset, also reachable from the UI and the tray.
+#[tauri::command]
+pub async fn reset_layout(app: AppHandle) -> CommandResult<()> {
+    blocking(app, |app, _| crate::reset::run(app)).await
 }

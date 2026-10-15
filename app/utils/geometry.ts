@@ -18,6 +18,11 @@ export interface Guide {
   y2: number
 }
 
+/** Enabled and occupying its own area of the desktop (not a mirror). */
+export function isPlaced(output: OutputConfig): boolean {
+  return output.enabled && !output.mirrorOf
+}
+
 // Mirrors Capabilities::scaled_layout; set once the backend is known.
 let scaledLayout = true
 
@@ -136,7 +141,7 @@ export function settle(moving: Rect, others: Rect[]): Position {
  * nearest first. Mutates `outputs`.
  */
 export function repair(outputs: OutputConfig[], anchors: string[] = []): void {
-  const enabled = outputs.filter(o => o.enabled)
+  const enabled = outputs.filter(isPlaced)
   if (enabled.length < 2) return
 
   const order = [
@@ -172,7 +177,7 @@ export interface LiveIssues {
 
 /** Geometry problems for highlighting while editing. */
 export function liveIssues(layout: Layout): LiveIssues {
-  const enabled = layout.outputs.filter(o => o.enabled)
+  const enabled = layout.outputs.filter(isPlaced)
   const rects = enabled.map(logicalRect)
   const overlapping = new Set<string>()
   for (let i = 0; i < rects.length; i++) {
@@ -206,7 +211,7 @@ export function liveIssues(layout: Layout): LiveIssues {
 /** Same desktop up to translation; mirrors display_core::profile::same_layout. */
 export function sameLayout(a: Layout, b: Layout): boolean {
   if (a.outputs.length !== b.outputs.length) return false
-  const origin = (l: Layout) => boundingBox(l.outputs.filter(o => o.enabled).map(logicalRect)) ?? { x: 0, y: 0 }
+  const origin = (l: Layout) => boundingBox(l.outputs.filter(isPlaced).map(logicalRect)) ?? { x: 0, y: 0 }
   const oa = origin(a)
   const ob = origin(b)
   return a.outputs.every((x) => {
@@ -217,7 +222,9 @@ export function sameLayout(a: Layout, b: Layout): boolean {
       && x.mode.refreshMhz === y.mode.refreshMhz
       && Math.abs(x.scale - y.scale) < 1e-6
       && x.rotation === y.rotation && x.primary === y.primary
-      && x.position.x - oa.x === y.position.x - ob.x
-      && x.position.y - oa.y === y.position.y - ob.y
+      && (x.mirrorOf ?? null) === (y.mirrorOf ?? null)
+      // Mirrors have no position of their own.
+      && (!!x.mirrorOf || (x.position.x - oa.x === y.position.x - ob.x
+        && x.position.y - oa.y === y.position.y - ob.y))
   })
 }

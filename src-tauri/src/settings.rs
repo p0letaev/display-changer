@@ -20,9 +20,8 @@ pub enum Theme {
 pub struct Settings {
     /// Seconds before an unconfirmed change is reverted.
     pub confirm_timeout_secs: u64,
-    /// Ask for confirmation also when a profile is applied from the tray,
-    /// a hotkey or automatically.
-    pub confirm_quick_apply: bool,
+    /// Space + Alt + → restores the layout from before the last change.
+    pub reset_combo: bool,
     /// Closing the window hides it to the tray instead of quitting.
     pub close_to_tray: bool,
     pub start_minimized: bool,
@@ -36,7 +35,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             confirm_timeout_secs: 15,
-            confirm_quick_apply: false,
+            reset_combo: true,
             close_to_tray: true,
             start_minimized: false,
             autostart: false,

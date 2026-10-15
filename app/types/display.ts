@@ -47,6 +47,8 @@ export interface OutputConfig {
   scale: number
   rotation: Rotation
   primary: boolean
+  /** Connector of the output this one repeats; mirrors have no own place. */
+  mirrorOf: string | null
 }
 
 export interface Layout {
@@ -67,6 +69,7 @@ export interface Capabilities {
   origin: 'topLeft' | 'primary'
   /** False on Windows: the desktop is in physical pixels regardless of scale. */
   scaledLayout: boolean
+  mirror: boolean
 }
 
 export interface BackendInfo {
@@ -85,6 +88,9 @@ export type LayoutIssue =
   | { type: 'disableUnsupported'; connector: string }
   | { type: 'overlap'; a: string; b: string }
   | { type: 'detached'; connector: string }
+  | { type: 'mirrorUnsupported'; connector: string }
+  | { type: 'invalidMirrorSource'; connector: string; sourceName: string }
+  | { type: 'mirrorPrimary'; connector: string }
 
 /** Mirrors display_core::Error and src-tauri/src/error.rs. */
 export type BackendError =
@@ -115,6 +121,7 @@ export type ProfileWarning =
   | { type: 'modeSubstituted'; connector: string; wanted: Mode; used: Mode }
   | { type: 'extraMonitor'; connector: string; disabled: boolean }
   | { type: 'primaryReassigned'; connector: string }
+  | { type: 'mirrorDropped'; connector: string }
 
 export interface Resolved {
   layout: Layout
@@ -131,8 +138,10 @@ export interface ApplyOutcome {
 
 export interface DisplayChanged {
   state: DisplayState
-  reason: 'reverted' | 'quick' | 'auto' | 'monitors' | 'external'
+  reason: 'reverted' | 'quick' | 'auto' | 'monitors' | 'external' | 'reset'
   profileName: string | null
+  /** Whether a change still waits for confirmation. */
+  pending: boolean
 }
 
 export interface QuickFailed {
@@ -146,7 +155,7 @@ export type Theme = 'system' | 'light' | 'dark'
 
 export interface Settings {
   confirmTimeoutSecs: number
-  confirmQuickApply: boolean
+  resetCombo: boolean
   closeToTray: boolean
   startMinimized: boolean
   autostart: boolean

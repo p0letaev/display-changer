@@ -47,11 +47,10 @@ export function useDisplayApi() {
     getSettings: () => invoke<Settings>('get_settings'),
     updateSettings: (settings: Settings) => invoke<Settings>('update_settings', { settings }),
     identifyMonitors: () => invoke<void>('identify_monitors'),
+    resetLayout: () => invoke<void>('reset_layout'),
 
     onDisplayChanged: (cb: (e: DisplayChanged) => void) =>
       listen<DisplayChanged>('display://changed', e => cb(e.payload)),
-    onPending: (cb: (e: ApplyOutcome) => void) =>
-      listen<ApplyOutcome>('display://pending', e => cb(e.payload)),
     onQuickFailed: (cb: (e: QuickFailed) => void) =>
       listen<QuickFailed>('display://quick-failed', e => cb(e.payload)),
   }

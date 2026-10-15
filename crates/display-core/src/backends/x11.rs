@@ -238,6 +238,7 @@ impl X11Backend {
                     scale: 1.0,
                     rotation: rotation_from_x(crtc.rotation),
                     primary: o.id == snap.primary,
+                    mirror_of: None,
                 }),
                 (None, Some(mode)) => Some(OutputConfig {
                     id: id.clone(),
@@ -247,6 +248,7 @@ impl X11Backend {
                     scale: 1.0,
                     rotation: Rotation::Normal,
                     primary: false,
+                    mirror_of: None,
                 }),
                 // Connected but reports no modes (e.g. a broken EDID): skip it.
                 (None, None) => None,
@@ -275,9 +277,11 @@ impl X11Backend {
             outputs.push(output);
         }
 
+        mark_mirrors(&mut outputs);
+
         // RandR allows "no primary"; the editor expects one, so pick the first enabled.
-        if !outputs.iter().any(|o| o.enabled && o.primary)
-            && let Some(first) = outputs.iter_mut().find(|o| o.enabled)
+        if !outputs.iter().any(|o| o.is_placed() && o.primary)
+            && let Some(first) = outputs.iter_mut().find(|o| o.is_placed())
         {
             first.primary = true;
         }
@@ -357,8 +361,17 @@ impl X11Backend {
     }
 
     fn apply_locked(&self, target: &Layout, snap: &Snapshot) -> Result<()> {
-        let size =
-            bounding_box(target).ok_or_else(|| Error::Backend("nothing to enable".into()))?;
+        // Mirrors sit on their source but may be larger than it.
+        let size = bounding_box(&Layout {
+            outputs: target
+                .enabled()
+                .map(|o| OutputConfig {
+                    mirror_of: None,
+                    ..o.clone()
+                })
+                .collect(),
+        })
+        .ok_or_else(|| Error::Backend("nothing to enable".into()))?;
         let range = x11!(
             "screen size range",
             self.conn.randr_get_screen_size_range(self.root)
@@ -480,6 +493,7 @@ impl DisplayBackend for X11Backend {
             disable: true,
             origin: OriginRule::TopLeft,
             scaled_layout: true,
+            mirror: true,
         }
     }
 
@@ -515,6 +529,35 @@ impl DisplayBackend for X11Backend {
             self.persist_to_xfce(&snap, &target);
         }
         result
+    }
+}
+
+/// X11 has no mirror flag: outputs showing the same area start at the same
+/// point (or share a CRTC). The primary, else the first, is the source.
+fn mark_mirrors(outputs: &mut [OutputConfig]) {
+    let enabled: Vec<usize> = (0..outputs.len()).filter(|&i| outputs[i].enabled).collect();
+    for &i in &enabled {
+        if outputs[i].mirror_of.is_some() {
+            continue;
+        }
+        let group: Vec<usize> = enabled
+            .iter()
+            .copied()
+            .filter(|&j| outputs[j].position == outputs[i].position)
+            .collect();
+        if group.len() < 2 {
+            continue;
+        }
+        let source = group
+            .iter()
+            .copied()
+            .find(|&j| outputs[j].primary)
+            .unwrap_or(group[0]);
+        let name = outputs[source].id.connector.clone();
+        for j in group.into_iter().filter(|&j| j != source) {
+            outputs[j].mirror_of = Some(name.clone());
+            outputs[j].primary = false;
+        }
     }
 }
 

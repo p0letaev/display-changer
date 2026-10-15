@@ -64,6 +64,25 @@ fn moves_switches_primary_toggles_and_restores() {
     assert_eq!(get(&s, a).position, Position { x: wc, y: 0 });
     assert!(get(&s, c).primary && !get(&s, a).primary);
 
+    // Mirror: Mutter puts both in one logical monitor (same resolution needed).
+    if get(&s, a).mode == get(&s, c).mode {
+        let mut l = s.clone();
+        set(&mut l, a, |o| {
+            o.mirror_of = Some(c.to_string());
+            o.primary = false;
+        });
+        b.apply(&l).unwrap();
+        let m = b.current_state().unwrap().layout;
+        assert_eq!(get(&m, a).mirror_of.as_deref(), Some(c));
+        let mut back = m.clone();
+        set(&mut back, a, |o| {
+            o.mirror_of = None;
+            o.position = Position { x: wc, y: 0 };
+        });
+        b.apply(&back).unwrap();
+    }
+    let s = b.current_state().unwrap().layout;
+
     // Off, then back to the start.
     let mut l = s.clone();
     set(&mut l, a, |o| o.enabled = false);

@@ -39,6 +39,9 @@ pub enum ProfileWarning {
     ExtraMonitor { connector: String, disabled: bool },
     /// The saved primary monitor is missing; another one became primary.
     PrimaryReassigned { connector: String },
+    /// The output was saved as a mirror but its source is missing or the
+    /// backend cannot mirror; it gets its own place instead.
+    MirrorDropped { connector: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -56,6 +59,8 @@ pub fn resolve(saved: &Layout, state: &DisplayState, caps: &Capabilities) -> Res
     let mut warnings = Vec::new();
     let mut used = vec![false; state.monitors.len()];
     let mut outputs = Vec::new();
+    // Saved connector -> connector now, to re-point mirrors.
+    let mut renamed: Vec<(String, String)> = Vec::new();
 
     for wanted in &saved.outputs {
         let Some(index) = find_monitor(&wanted.id, &state.monitors, &used) else {
@@ -67,6 +72,7 @@ pub fn resolve(saved: &Layout, state: &DisplayState, caps: &Capabilities) -> Res
         };
         used[index] = true;
         let monitor = &state.monitors[index];
+        renamed.push((wanted.id.connector.clone(), monitor.id.connector.clone()));
 
         let mode = closest_mode(&wanted.mode, monitor);
         if mode != wanted.mode && wanted.enabled {
@@ -107,6 +113,7 @@ pub fn resolve(saved: &Layout, state: &DisplayState, caps: &Capabilities) -> Res
             scale: current.map_or(1.0, |o| o.scale),
             rotation: current.map(|o| o.rotation).unwrap_or_default(),
             primary: false,
+            mirror_of: None,
         });
         warnings.push(ProfileWarning::ExtraMonitor {
             connector: monitor.id.connector.clone(),
@@ -114,11 +121,13 @@ pub fn resolve(saved: &Layout, state: &DisplayState, caps: &Capabilities) -> Res
         });
     }
 
+    remap_mirrors(&mut outputs, &renamed, caps, &mut warnings);
+
     if caps.primary && !outputs.iter().any(|o| o.enabled && o.primary) {
         for o in &mut outputs {
             o.primary = false;
         }
-        if let Some(first) = outputs.iter_mut().find(|o| o.enabled) {
+        if let Some(first) = outputs.iter_mut().find(|o| o.is_placed()) {
             first.primary = true;
             warnings.push(ProfileWarning::PrimaryReassigned {
                 connector: first.id.connector.clone(),
@@ -129,6 +138,52 @@ pub fn resolve(saved: &Layout, state: &DisplayState, caps: &Capabilities) -> Res
     Resolved {
         layout: Layout { outputs },
         warnings,
+    }
+}
+
+/// Points mirrors at their source's current connector; a mirror whose source
+/// is gone (or that the backend cannot show) becomes a normal output placed
+/// to the right of the rest.
+fn remap_mirrors(
+    outputs: &mut [OutputConfig],
+    renamed: &[(String, String)],
+    caps: &Capabilities,
+    warnings: &mut Vec<ProfileWarning>,
+) {
+    for i in 0..outputs.len() {
+        let Some(saved_source) = outputs[i].mirror_of.clone() else {
+            continue;
+        };
+        let source = renamed
+            .iter()
+            .find(|(old, _)| *old == saved_source)
+            .map(|(_, new)| new.clone())
+            .filter(|s| {
+                outputs
+                    .iter()
+                    .any(|o| o.id.connector == *s && o.is_placed())
+            });
+        match source {
+            Some(s) if caps.mirror => outputs[i].mirror_of = Some(s),
+            _ => {
+                outputs[i].mirror_of = None;
+                let others = Layout {
+                    outputs: outputs
+                        .iter()
+                        .enumerate()
+                        .filter(|(j, _)| *j != i)
+                        .map(|(_, o)| o.clone())
+                        .collect(),
+                };
+                let x = bounding_box(&others).map_or(0, |b| b.right());
+                outputs[i].position = Position { x, y: 0 };
+                if outputs[i].enabled {
+                    warnings.push(ProfileWarning::MirrorDropped {
+                        connector: outputs[i].id.connector.clone(),
+                    });
+                }
+            }
+        }
     }
 }
 
@@ -192,7 +247,9 @@ pub fn same_layout(a: &Layout, b: &Layout) -> bool {
                         && (x.scale - y.scale).abs() < 1e-6
                         && x.rotation == y.rotation
                         && x.primary == y.primary
-                        && logical_rect(x) == logical_rect(y)))
+                        && x.mirror_of == y.mirror_of
+                        // Mirrors have no position of their own.
+                        && (x.mirror_of.is_some() || logical_rect(x) == logical_rect(y))))
         })
 }
 
@@ -266,6 +323,31 @@ mod tests {
             resolved.warnings[0],
             ProfileWarning::ModeSubstituted { .. }
         ));
+    }
+
+    #[test]
+    fn mirrors_follow_their_source_to_another_port() {
+        let mut state = sample_state();
+        let mut saved = state.layout.clone();
+        saved.outputs[2].mirror_of = Some("DP-1".into());
+        // DELL moved from DP-1 to DP-2.
+        state.monitors[1].id.connector = "DP-2".into();
+        state.layout.outputs[1].id.connector = "DP-2".into();
+        let resolved = resolve(&saved, &state, &caps());
+        assert_eq!(
+            resolved.layout.outputs[2].mirror_of.as_deref(),
+            Some("DP-2")
+        );
+
+        // Source gone: the mirror stands on its own.
+        state.monitors.remove(1);
+        state.layout.outputs.remove(1);
+        let resolved = resolve(&saved, &state, &caps());
+        let lg = resolved.layout.output("HDMI-A-1").unwrap();
+        assert_eq!(lg.mirror_of, None);
+        assert!(resolved.warnings.contains(&ProfileWarning::MirrorDropped {
+            connector: "HDMI-A-1".into()
+        }));
     }
 
     #[test]

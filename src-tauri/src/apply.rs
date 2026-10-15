@@ -16,8 +16,6 @@ use crate::error::CommandResult;
 
 /// Display state changed for a reason other than the UI's own apply.
 pub const CHANGED_EVENT: &str = "display://changed";
-/// A quick apply is waiting for confirmation; carries an [`ApplyOutcome`].
-pub const PENDING_EVENT: &str = "display://pending";
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,6 +38,8 @@ pub enum ChangeReason {
     Monitors,
     /// Something else (system settings, the CLI) changed the layout.
     External,
+    /// The emergency reset (Space + Alt + →) restored a layout.
+    Reset,
 }
 
 #[derive(Clone, Serialize)]
@@ -48,6 +48,9 @@ pub struct DisplayChanged {
     pub state: DisplayState,
     pub reason: ChangeReason,
     pub profile_name: Option<String>,
+    /// Whether a change still waits for confirmation. The UI follows this so
+    /// its countdown cannot outlive a pending apply that was superseded.
+    pub pending: bool,
 }
 
 pub fn notify(
@@ -56,12 +59,14 @@ pub fn notify(
     reason: ChangeReason,
     profile_name: Option<String>,
 ) {
+    let pending = app.state::<AppState>().apply.is_pending();
     let _ = app.emit(
         CHANGED_EVENT,
         DisplayChanged {
             state,
             reason,
             profile_name,
+            pending,
         },
     );
 }
@@ -76,6 +81,8 @@ struct Pending {
 pub struct ApplyManager {
     pending: Mutex<Option<Pending>>,
     counter: AtomicU64,
+    /// Layout before the most recent change, for the emergency reset.
+    before_last: Mutex<Option<Layout>>,
 }
 
 impl ApplyManager {
@@ -90,6 +97,7 @@ impl ApplyManager {
     ) -> CommandResult<ApplyOutcome> {
         let current = backend.current_state()?.layout;
         backend.apply(layout)?;
+        *self.before_last.lock().unwrap() = Some(current.clone());
 
         let token = self.counter.fetch_add(1, Ordering::Relaxed) + 1;
         {
@@ -117,9 +125,18 @@ impl ApplyManager {
 
     /// Applies without a confirmation window and drops any pending revert.
     pub fn apply_final(&self, backend: &dyn DisplayBackend, layout: &Layout) -> CommandResult<()> {
+        let current = backend.current_state().ok().map(|s| s.layout);
         backend.apply(layout)?;
         *self.pending.lock().unwrap() = None;
+        if let Some(current) = current {
+            *self.before_last.lock().unwrap() = Some(current);
+        }
         Ok(())
+    }
+
+    /// Takes the layout to go back to on reset, if there is one.
+    pub fn take_before_last(&self) -> Option<Layout> {
+        self.before_last.lock().unwrap().take()
     }
 
     pub fn confirm(&self, token: u64) -> bool {

@@ -96,6 +96,17 @@ pub struct OutputConfig {
     pub scale: f64,
     pub rotation: Rotation,
     pub primary: bool,
+    /// Connector of the output this one repeats (mirror). A mirror has no
+    /// place of its own on the desktop: its position is the source's.
+    #[serde(default)]
+    pub mirror_of: Option<String>,
+}
+
+impl OutputConfig {
+    /// Enabled and occupying its own area of the desktop (not a mirror).
+    pub fn is_placed(&self) -> bool {
+        self.enabled && self.mirror_of.is_none()
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -111,6 +122,11 @@ impl Layout {
 
     pub fn enabled(&self) -> impl Iterator<Item = &OutputConfig> {
         self.outputs.iter().filter(|o| o.enabled)
+    }
+
+    /// Enabled outputs that are not mirrors: the ones laid out on the desktop.
+    pub fn placed(&self) -> impl Iterator<Item = &OutputConfig> {
+        self.outputs.iter().filter(|o| o.is_placed())
     }
 }
 

@@ -28,6 +28,8 @@ pub struct Capabilities {
     /// On Windows the desktop is in physical pixels and scale only affects
     /// content size.
     pub scaled_layout: bool,
+    /// Outputs can repeat (mirror) another output.
+    pub mirror: bool,
 }
 
 pub trait DisplayBackend: Send + Sync {

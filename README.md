@@ -64,9 +64,12 @@ unit tests and the `dump`/`apply` examples run under Wine.
 ## Features
 
 - Drag-and-snap layout editor; resolution, refresh rate, scale, rotation, primary, on/off
+- Mirroring: a monitor can repeat another (X11, Windows, KDE, GNOME; wlroots has no protocol for it)
 - Profiles matched to monitors by EDID, so they follow a monitor to another port
 - Apply with a countdown and automatic revert (5–120 s, configurable)
-- Global hotkeys and a tray menu for profiles; optional confirmation for these
+- Global hotkeys and a tray menu apply profiles at once, without a countdown
+- Emergency reset **Space + Alt + →** (also in the tray and the window) restores the layout from
+  before the last change, or turns every monitor on at its preferred mode if there is no history
 - Automatic switching: profiles marked "auto" apply when their monitors get connected
 - Changes made elsewhere (system settings, the CLI) show up in the window
 - "Identify" shows each monitor's number on that monitor
@@ -80,8 +83,10 @@ Profiles and settings are stored in `~/.config/io.github.displaychanger/`
 `settings.json`; `profiles.mock.json` for the demo backend.
 
 - Applying from the UI reverts after 15 s unless confirmed; the timer runs in Rust.
-- Hotkeys, the tray and automatic switching apply a profile without confirmation,
-  since it was saved from a working setup; a setting turns confirmation on.
+- Hotkeys, the tray and automatic switching apply a profile at once; repeated presses
+  while an apply runs are ignored. Space + Alt + → undoes the last change.
+- The reset grabs Alt + → globally and acts only while Space is held, so a plain
+  Alt + → is swallowed while the app runs (it can be switched off in settings).
 - Global hotkeys work on X11 and Windows. Wayland does not allow global grabs:
   bind `display-changer apply "<profile>"` in your compositor instead.
 

@@ -1,16 +1,23 @@
 //! Applying a profile without the editor: hotkeys, the tray menu and
-//! automatic switching. Runs on a background thread.
+//! automatic switching. Runs on a background thread, applies at once (no
+//! countdown — Space + Alt + → undoes it) and ignores repeats while busy.
 
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
 
+use display_core::profile::same_layout;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::AppState;
-use crate::apply::{ChangeReason, PENDING_EVENT, notify};
+use crate::apply::{ChangeReason, notify};
 use crate::commands::resolve_profile;
+use crate::tray;
 
 pub const FAILED_EVENT: &str = "display://quick-failed";
+
+/// Held keys and key repeat fire the same hotkey several times; one apply at
+/// a time keeps the screens from flickering through a queue of requests.
+static BUSY: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Debug)]
 pub enum Source {
@@ -31,9 +38,16 @@ pub fn spawn(app: &AppHandle, profile_id: String, source: Source) {
     std::thread::spawn(move || run(&app, &profile_id, source));
 }
 
-/// Profiles were saved from a working setup, so by default they apply at
-/// once; with `confirm_quick_apply` the window opens with the usual countdown.
 pub fn run(app: &AppHandle, profile_id: &str, source: Source) {
+    if BUSY.swap(true, Ordering::AcqRel) {
+        log::debug!("{source:?}: another apply is running, ignored");
+        return;
+    }
+    run_exclusive(app, profile_id, source);
+    BUSY.store(false, Ordering::Release);
+}
+
+fn run_exclusive(app: &AppHandle, profile_id: &str, source: Source) {
     let state = app.state::<AppState>();
     let name = state
         .profiles
@@ -42,39 +56,30 @@ pub fn run(app: &AppHandle, profile_id: &str, source: Source) {
         .get(profile_id)
         .map(|p| p.name.clone())
         .unwrap_or_default();
-    let settings = state.settings.lock().unwrap().clone();
+    let reason = if matches!(source, Source::Auto) {
+        ChangeReason::Auto
+    } else {
+        ChangeReason::Quick
+    };
 
     let result = resolve_profile(&state, profile_id).and_then(|resolved| {
-        if settings.confirm_quick_apply {
-            let timeout = Duration::from_secs(settings.confirm_timeout_secs);
-            let outcome = state.apply.apply_tentative(
-                app,
-                state.backend.as_ref(),
-                &resolved.layout,
-                timeout,
-            )?;
-            crate::tray::show_main_window(app);
-            let _ = app.emit(PENDING_EVENT, outcome);
-            Ok(None)
-        } else {
-            state
-                .apply
-                .apply_final(state.backend.as_ref(), &resolved.layout)?;
-            Ok(Some(state.backend.current_state()?))
+        let current = state.backend.current_state()?;
+        // Already there: confirm the press without touching the screens.
+        if same_layout(&resolved.layout, &current.layout) {
+            return Ok(current);
         }
+        state
+            .apply
+            .apply_final(state.backend.as_ref(), &resolved.layout)?;
+        Ok(state.backend.current_state()?)
     });
 
     match result {
-        Ok(Some(display)) => {
+        Ok(display) => {
             log::info!("{source:?} applied profile {name:?}");
-            let reason = if matches!(source, Source::Auto) {
-                ChangeReason::Auto
-            } else {
-                ChangeReason::Quick
-            };
             notify(app, display, reason, Some(name));
+            tray::refresh(app);
         }
-        Ok(None) => log::info!("{source:?} applied profile {name:?}, waiting for confirmation"),
         Err(error) => {
             log::warn!("{source:?} profile {name:?} failed: {error}");
             let _ = app.emit(

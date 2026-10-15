@@ -8,6 +8,7 @@ export function describeWarning(w: ProfileWarning): string {
       ? `${w.connector} нет в профиле — будет отключён`
       : `${w.connector} нет в профиле — останется включённым`
     case 'primaryReassigned': return `Основным станет ${w.connector}`
+    case 'mirrorDropped': return `${w.connector}: нечего повторять — будет отдельным экраном`
   }
 }
 
@@ -43,6 +44,9 @@ function describeIssue(issue: LayoutIssue): string {
     case 'disableUnsupported': return `${issue.connector}: нельзя отключить`
     case 'overlap': return `${issue.a} перекрывает ${issue.b}`
     case 'detached': return `${issue.connector}: оторван от остальных мониторов`
+    case 'mirrorUnsupported': return `${issue.connector}: повтор экрана здесь не поддерживается`
+    case 'invalidMirrorSource': return `${issue.connector}: нельзя повторять ${issue.sourceName}`
+    case 'mirrorPrimary': return `${issue.connector}: повторяющий монитор не может быть основным`
   }
 }
 
