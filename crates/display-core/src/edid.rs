@@ -67,6 +67,33 @@ pub fn parse(bytes: &[u8]) -> Option<EdidInfo> {
     Some(info)
 }
 
+/// The monitor's preferred mode: EDID puts it in the first detailed timing
+/// descriptor. Refresh is rounded to whole hertz, as Windows reports modes.
+pub fn preferred_mode(bytes: &[u8]) -> Option<crate::model::Mode> {
+    if bytes.len() < 128 || bytes[..8] != HEADER {
+        return None;
+    }
+    let d = &bytes[54..72];
+    let clock_hz = u64::from(u16::from_le_bytes([d[0], d[1]])) * 10_000;
+    if clock_hz == 0 {
+        return None; // a display descriptor, not a timing
+    }
+    let h_active = u32::from(d[2]) | (u32::from(d[4] & 0xf0) << 4);
+    let h_blank = u32::from(d[3]) | (u32::from(d[4] & 0x0f) << 8);
+    let v_active = u32::from(d[5]) | (u32::from(d[7] & 0xf0) << 4);
+    let v_blank = u32::from(d[6]) | (u32::from(d[7] & 0x0f) << 8);
+    let total = u64::from(h_active + h_blank) * u64::from(v_active + v_blank);
+    if h_active == 0 || v_active == 0 || total == 0 {
+        return None;
+    }
+    let hz = ((clock_hz as f64) / (total as f64)).round() as u32;
+    Some(crate::model::Mode {
+        width: h_active,
+        height: v_active,
+        refresh_mhz: hz * 1000,
+    })
+}
+
 /// Descriptor strings end at 0x0a and are padded with spaces.
 fn descriptor_text(raw: &[u8]) -> String {
     let end = raw.iter().position(|&b| b == 0x0a).unwrap_or(raw.len());
@@ -134,6 +161,20 @@ pub(crate) mod tests {
             parse(&sample("GSM", 1, 0, None, None)).unwrap().serial,
             None
         );
+    }
+
+    #[test]
+    fn reads_preferred_timing() {
+        // CEA 1080p60: 148.5 MHz, 1920+280 x 1080+45.
+        let mut b = sample("DEL", 1, 0, None, None);
+        let dtd = [0x02, 0x3a, 0x80, 0x18, 0x71, 0x38, 0x2d, 0x40];
+        b[54..62].copy_from_slice(&dtd);
+        let mode = preferred_mode(&b).unwrap();
+        assert_eq!(
+            (mode.width, mode.height, mode.refresh_mhz),
+            (1920, 1080, 60_000)
+        );
+        assert_eq!(preferred_mode(&sample("DEL", 1, 0, Some("X"), None)), None);
     }
 
     #[test]

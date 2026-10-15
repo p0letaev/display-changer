@@ -70,9 +70,9 @@ fn list() -> i32 {
     let current = backend.current_state().ok();
     let caps = backend.capabilities();
     for p in &profiles {
-        let active = current.as_ref().is_some_and(|c| {
-            display_core::profile::same_layout(&resolve(&p.layout, c, &caps).layout, &c.layout)
-        });
+        let active = current
+            .as_ref()
+            .is_some_and(|c| display_core::profile::is_active(&p.layout, c, &caps));
         let hotkey = p
             .hotkey
             .as_deref()

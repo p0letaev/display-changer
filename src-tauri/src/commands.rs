@@ -1,4 +1,4 @@
-use display_core::profile::{resolve, same_layout};
+use display_core::profile::{is_active, resolve};
 use display_core::{Capabilities, DisplayState, Error, Layout, Profile, Resolved};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
@@ -119,10 +119,7 @@ pub async fn list_profiles(app: AppHandle) -> CommandResult<Vec<ProfileEntry>> {
         Ok(profiles
             .into_iter()
             .map(|profile| ProfileEntry {
-                active: same_layout(
-                    &resolve(&profile.layout, &current, &caps).layout,
-                    &current.layout,
-                ),
+                active: is_active(&profile.layout, &current, &caps),
                 hotkey_error: s.hotkeys.error_for(&profile.id),
                 profile,
             })

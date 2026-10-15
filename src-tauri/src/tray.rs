@@ -1,7 +1,7 @@
 //! Tray icon with one menu entry per profile.
 
-use display_core::profile::{resolve, same_layout};
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+use display_core::profile::is_active;
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Wry};
 
@@ -59,7 +59,7 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     for p in &profiles {
         let active = current
             .as_ref()
-            .is_some_and(|c| same_layout(&resolve(&p.layout, c, &caps).layout, &c.layout));
+            .is_some_and(|c| is_active(&p.layout, c, &caps));
         let label = match &p.hotkey {
             Some(h) => format!(
                 "{}    {}",
@@ -69,14 +69,14 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             None => p.name.clone(),
         };
         let id = format!("{PROFILE_PREFIX}{}", p.id);
-        menu.append(&CheckMenuItem::with_id(
-            app,
-            id,
-            label,
-            true,
-            active,
-            None::<&str>,
-        )?)?;
+        // Plain items: a native check item toggles itself on click (Windows)
+        // and can show two profiles as active until the menu is rebuilt.
+        let label = if active {
+            format!("● {label}")
+        } else {
+            format!("    {label}")
+        };
+        menu.append(&MenuItem::with_id(app, id, label, true, None::<&str>)?)?;
     }
     if profiles.is_empty() {
         menu.append(&MenuItem::with_id(

@@ -10,8 +10,9 @@
 //! The Windows desktop is laid out in physical pixels: scale changes content
 //! size, not monitor rectangles (`scaled_layout = false`).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::mem::size_of;
+use std::sync::LazyLock;
 use std::sync::Mutex;
 
 use windows::Win32::Devices::Display::*;
@@ -117,7 +118,25 @@ struct Target {
     current: Option<(Mode, Position, Rotation)>,
     dpi: Option<Dpi>,
     source: Option<(LUID, u32)>,
+    /// Modes could not be listed (monitor is off) and were remembered or guessed.
+    guessed_modes: bool,
+    /// Mode it had when last seen on, for showing an off monitor.
+    remembered: Option<Mode>,
 }
+
+/// Windows lists modes only for monitors that are on. Remember them while a
+/// monitor is on so it can be shown and switched back on later. The backend
+/// lives as long as the app, so a process-wide cache is enough.
+type ModeCache = HashMap<TargetKey, (Vec<Mode>, Mode)>;
+static MODE_CACHE: LazyLock<Mutex<ModeCache>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Last logged monitor list, to log only changes.
+static LAST_SEEN: Mutex<String> = Mutex::new(String::new());
+/// Shown for an off monitor when nothing better is known.
+const FALLBACK_MODE: Mode = Mode {
+    width: 1920,
+    height: 1080,
+    refresh_mhz: 60_000,
+};
 
 struct Snapshot {
     all_paths: Vec<DISPLAYCONFIG_PATH_INFO>,
@@ -479,6 +498,8 @@ fn snapshot() -> Result<Snapshot> {
             current: None,
             dpi: None,
             source: None,
+            guessed_modes: false,
+            remembered: None,
         });
     }
 
@@ -530,16 +551,62 @@ fn snapshot() -> Result<Snapshot> {
         }
     }
 
+    let mut cache = MODE_CACHE.lock().unwrap();
+    for t in &targets {
+        if let Some((mode, ..)) = t.current {
+            cache.insert(t.key, (t.modes.clone(), mode));
+        }
+    }
+    // A connected monitor never disappears from the list just because it is
+    // off: otherwise it could not be switched back on, and profiles that
+    // differ only in which monitor is on would all look active.
     for t in targets.iter_mut().filter(|t| t.modes.is_empty()) {
+        t.guessed_modes = true;
+        if let Some((modes, last)) = cache.get(&t.key) {
+            t.modes = modes.clone();
+            t.remembered = Some(*last);
+            continue;
+        }
         let adapter = LUID {
             LowPart: t.key.adapter.0,
             HighPart: t.key.adapter.1,
         };
-        if let Some(mode) = preferred_mode(adapter, t.key.id) {
-            t.modes.push(mode);
+        for mode in [
+            edid::preferred_mode(&t.edid),
+            preferred_mode(adapter, t.key.id),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !t.modes.contains(&mode) {
+                t.modes.push(mode);
+            }
+        }
+        if t.modes.is_empty() {
+            t.modes.push(FALLBACK_MODE);
         }
     }
-    targets.retain(|t| !t.modes.is_empty());
+    drop(cache);
+
+    let seen = targets
+        .iter()
+        .map(|t| {
+            let on = if t.current.is_some() { "on" } else { "off" };
+            format!(
+                "{} {on} ({} modes{})",
+                t.connector,
+                t.modes.len(),
+                if t.guessed_modes { ", guessed" } else { "" }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut last = LAST_SEEN.lock().unwrap();
+    if *last != seen {
+        log::info!("windows: monitors: {seen}");
+        *last = seen;
+    }
+    drop(last);
 
     Ok(Snapshot {
         all_paths,
@@ -577,11 +644,16 @@ fn state_from(snap: &Snapshot) -> DisplayState {
                     width_mm: w,
                     height_mm: h,
                 }),
-            preferred_mode: t.modes.first().copied(),
+            preferred_mode: if t.guessed_modes {
+                None
+            } else {
+                t.modes.first().copied()
+            },
             modes: t.modes.clone(),
             rotations: Rotation::ALL.to_vec(),
             scales: t.dpi.map(|d| d.scales()).unwrap_or_default(),
-            custom_modes: false,
+            // Off monitors: modes are a best guess, Windows decides on enable.
+            custom_modes: t.guessed_modes,
         });
         // Cloned targets share one source; the first one is the original.
         let clone_of = t.source.and_then(|src| {
@@ -606,7 +678,7 @@ fn state_from(snap: &Snapshot) -> DisplayState {
                 id,
                 enabled: false,
                 position: Position::default(),
-                mode: t.modes[0],
+                mode: t.remembered.unwrap_or(t.modes[0]),
                 scale: 1.0,
                 rotation: Rotation::Normal,
                 primary: false,
@@ -717,7 +789,7 @@ fn apply_topology(snap: &Snapshot, target: &Layout) -> Result<bool> {
 }
 
 /// Step 2: modes, positions, rotation, primary — tested, then committed at once.
-fn apply_modes(snap: &Snapshot, target: &Layout) -> Result<()> {
+fn apply_modes(snap: &Snapshot, target: &Layout, newly_on: &HashSet<String>) -> Result<()> {
     let mut changes = Vec::new();
     for t in &snap.targets {
         // Mirrors show their source's desktop; the source's mode drives them.
@@ -760,10 +832,22 @@ fn apply_modes(snap: &Snapshot, target: &Layout) -> Result<()> {
         changes.push((t.connector.clone(), gdi, dm, flags));
     }
 
-    for (name, gdi, dm, _) in &changes {
-        let rc = unsafe {
+    for (name, gdi, dm, _) in &mut changes {
+        let test = |dm: &DEVMODEW| unsafe {
             ChangeDisplaySettingsExW(PCWSTR(gdi.as_ptr()), Some(dm), None, CDS_TEST, None)
         };
+        let mut rc = test(dm);
+        // A monitor just switched on had only guessed modes: keep the mode
+        // Windows picked and set position and rotation only.
+        if rc != DISP_CHANGE_SUCCESSFUL && newly_on.contains(name.as_str()) {
+            log::warn!(
+                "{name}: mode {}x{} rejected, keeping the one Windows chose",
+                dm.dmPelsWidth,
+                dm.dmPelsHeight
+            );
+            dm.dmFields = DM_POSITION | DM_DISPLAYORIENTATION;
+            rc = test(dm);
+        }
         if rc != DISP_CHANGE_SUCCESSFUL {
             return Err(Error::Unsupported(format!(
                 "{name}: settings rejected ({rc:?})"
@@ -863,6 +947,12 @@ fn enabled_set(snap: &Snapshot) -> HashSet<String> {
 fn apply_all(target: &Layout) -> Result<()> {
     let wanted: HashSet<String> = target.enabled().map(|o| o.id.connector.clone()).collect();
     let snap = snapshot()?;
+    let newly_on: HashSet<String> = snap
+        .targets
+        .iter()
+        .filter(|t| t.current.is_none() && wanted.contains(&t.connector))
+        .map(|t| t.connector.clone())
+        .collect();
     apply_topology(&snap, target)?;
     // New sources mean new GDI names and DPI handles.
     let mut snap = snapshot()?;
@@ -881,7 +971,7 @@ fn apply_all(target: &Layout) -> Result<()> {
             diff.into_iter().cloned().collect::<Vec<_>>().join(", ")
         )));
     }
-    apply_modes(&snap, target)?;
+    apply_modes(&snap, target, &newly_on)?;
     apply_scale(&snapshot()?, target)
 }
 

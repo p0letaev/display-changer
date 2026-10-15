@@ -229,6 +229,25 @@ fn closest_mode(wanted: &Mode, monitor: &MonitorInfo) -> Mode {
         .unwrap_or(*wanted)
 }
 
+/// Whether the desktop currently is what the profile describes.
+///
+/// A monitor the profile wants on must actually be present: otherwise two
+/// profiles that differ only in which monitor is on could both look active
+/// when one monitor is missing from the list.
+pub fn is_active(saved: &Layout, state: &DisplayState, caps: &Capabilities) -> bool {
+    let resolved = resolve(saved, state, caps);
+    let incomplete = resolved.warnings.iter().any(|w| match w {
+        ProfileWarning::MissingMonitor { connector, .. } => {
+            saved.output(connector).is_some_and(|o| o.enabled)
+        }
+        ProfileWarning::ModeSubstituted { .. }
+        | ProfileWarning::PrimaryReassigned { .. }
+        | ProfileWarning::MirrorDropped { .. } => true,
+        ProfileWarning::ExtraMonitor { .. } => false,
+    });
+    !incomplete && same_layout(&resolved.layout, &state.layout)
+}
+
 /// True when both layouts would produce the same desktop.
 pub fn same_layout(a: &Layout, b: &Layout) -> bool {
     let a = layout::normalize(a, OriginRule::TopLeft);
@@ -348,6 +367,49 @@ mod tests {
         assert!(resolved.warnings.contains(&ProfileWarning::MirrorDropped {
             connector: "HDMI-A-1".into()
         }));
+    }
+
+    #[test]
+    fn only_the_matching_profile_is_active_when_a_monitor_is_missing() {
+        // Profile A: laptop only. Profile B: DELL only. The laptop is off and
+        // the platform does not list it at all.
+        let full = sample_state();
+        let off = |o: &OutputConfig| OutputConfig {
+            enabled: false,
+            primary: false,
+            ..o.clone()
+        };
+        let on = |o: &OutputConfig| OutputConfig {
+            position: Position { x: 0, y: 0 },
+            primary: true,
+            ..o.clone()
+        };
+        let a = Layout {
+            outputs: vec![
+                on(&full.layout.outputs[0]),
+                off(&full.layout.outputs[1]),
+                off(&full.layout.outputs[2]),
+            ],
+        };
+        let b = Layout {
+            outputs: vec![
+                off(&full.layout.outputs[0]),
+                on(&full.layout.outputs[1]),
+                off(&full.layout.outputs[2]),
+            ],
+        };
+
+        let mut state = full.clone();
+        state.monitors.remove(0);
+        state.layout = Layout {
+            outputs: vec![on(&full.layout.outputs[1]), off(&full.layout.outputs[2])],
+        };
+
+        assert!(is_active(&b, &state, &caps()));
+        assert!(
+            !is_active(&a, &state, &caps()),
+            "laptop is not there, A cannot be active"
+        );
     }
 
     #[test]

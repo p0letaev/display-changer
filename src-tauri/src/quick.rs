@@ -4,7 +4,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use display_core::profile::same_layout;
+use display_core::profile::is_active;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -45,6 +45,8 @@ pub fn run(app: &AppHandle, profile_id: &str, source: Source) {
     }
     run_exclusive(app, profile_id, source);
     BUSY.store(false, Ordering::Release);
+    // Also after a failure: the tray must show what is really active.
+    tray::refresh(app);
 }
 
 fn run_exclusive(app: &AppHandle, profile_id: &str, source: Source) {
@@ -62,10 +64,16 @@ fn run_exclusive(app: &AppHandle, profile_id: &str, source: Source) {
         ChangeReason::Quick
     };
 
+    let saved = state
+        .profiles
+        .lock()
+        .unwrap()
+        .get(profile_id)
+        .map(|p| p.layout.clone());
     let result = resolve_profile(&state, profile_id).and_then(|resolved| {
         let current = state.backend.current_state()?;
         // Already there: confirm the press without touching the screens.
-        if same_layout(&resolved.layout, &current.layout) {
+        if saved.is_some_and(|s| is_active(&s, &current, &state.backend.capabilities())) {
             return Ok(current);
         }
         state
@@ -78,7 +86,6 @@ fn run_exclusive(app: &AppHandle, profile_id: &str, source: Source) {
         Ok(display) => {
             log::info!("{source:?} applied profile {name:?}");
             notify(app, display, reason, Some(name));
-            tray::refresh(app);
         }
         Err(error) => {
             log::warn!("{source:?} profile {name:?} failed: {error}");
