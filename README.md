@@ -84,3 +84,17 @@ Profiles and settings are stored in `~/.config/io.github.displaychanger/`
   since it was saved from a working setup; a setting turns confirmation on.
 - Global hotkeys work on X11 and Windows. Wayland does not allow global grabs:
   bind `display-changer apply "<profile>"` in your compositor instead.
+
+## Building releases
+
+```sh
+# Linux: .deb, .rpm, .AppImage
+npm run tauri build -- --bundles deb,rpm,appimage
+
+# Windows installer from Linux (needs cargo-xwin, lld, llvm, nsis)
+npm run tauri build -- --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis
+```
+
+Artifacts go to `target/release/bundle/` and
+`target/x86_64-pc-windows-msvc/release/bundle/`. The local `builds/` folder
+(ignored by git) holds copies that are attached to GitHub releases by hand.

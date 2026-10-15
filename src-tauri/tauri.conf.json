@@ -44,6 +44,20 @@
       "icons/icon.ico"
     ],
     "category": "Utility",
-    "shortDescription": "Monitor layout editor with profiles"
+    "shortDescription": "Monitor layout editor with profiles",
+    "publisher": "p0letaev",
+    "copyright": "© 2026 p0letaev",
+    "homepage": "https://github.com/p0letaev/display-changer",
+    "longDescription": "Interactive monitor layout editor with profiles, hotkeys, tray and automatic switching for Linux (X11, wlroots, KDE, GNOME) and Windows.",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "Russian",
+          "English"
+        ],
+        "displayLanguageSelector": false
+      }
+    }
   }
 }
