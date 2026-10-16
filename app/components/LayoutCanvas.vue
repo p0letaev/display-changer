@@ -57,6 +57,8 @@ const items = computed(() =>
 const mirrors = computed(() => props.outputs.filter(o => o.enabled && o.mirrorOf))
 const mirrorsOf = (connector: string) => mirrors.value.filter(m => m.mirrorOf === connector)
 
+const parts = computed(() => splitParts(props.outputs))
+
 function toLogical(e: PointerEvent): DOMPoint {
   const ctm = svg.value!.getScreenCTM()!
   return new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse())
@@ -154,6 +156,16 @@ function onPointerUp(e: PointerEvent) {
         </text>
         <text v-if="output.primary" class="star" :x="unit * 2.4" :y="unit * 3.4" :font-size="unit * 2.4">
           ★
+        </text>
+        <text
+          v-if="parts.get(output.id.connector)"
+          class="part"
+          :x="rect.width - unit * 1.8"
+          :y="unit * 3.4"
+          :font-size="unit * 1.9"
+        >
+          <title>Часть одного монитора (экспериментально)</title>
+          ◫ {{ parts.get(output.id.connector)!.part }}/{{ parts.get(output.id.connector)!.total }}
         </text>
       </g>
 
@@ -269,6 +281,12 @@ text {
 
 .star {
   fill: var(--primary-badge);
+}
+
+.part {
+  fill: var(--text-muted);
+  text-anchor: end;
+  font-family: var(--mono);
 }
 
 .mirror {

@@ -61,10 +61,16 @@ scripts/wayland-test-servers.sh        # headless Sway, KWin and Mutter
 Windows code is checked from Linux with `cargo xwin clippy --target x86_64-pc-windows-msvc`;
 unit tests and the `dump`/`apply` examples run under Wine.
 
+Experimental: `cargo run -p display-core --example ddc` probes DDC/CI: input source (VCP 0x60) and the
+capabilities string of each monitor; `scan <monitor>` reads every VCP code, `set` writes one.
+Linux needs `sudo modprobe i2c-dev` and access to `/dev/i2c-*`. Wine has no DDC/CI.
+
 ## Features
 
 - Drag-and-snap layout editor; resolution, refresh rate, scale, rotation, primary, on/off
 - Mirroring: a monitor can repeat another (X11, Windows, KDE, GNOME; wlroots has no protocol for it)
+- Experimental: picture-by-picture monitors (Samsung Odyssey and similar): each input is its own
+  screen; profiles keep the parts apart by port, the editor marks them `◫ 1/2`
 - Profiles matched to monitors by EDID, so they follow a monitor to another port
 - Apply with a countdown and automatic revert (5–120 s, configurable)
 - Global hotkeys and a tray menu apply profiles at once, without a countdown

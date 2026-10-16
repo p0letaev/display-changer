@@ -192,9 +192,14 @@ fn find_monitor(id: &MonitorId, monitors: &[MonitorInfo], used: &[bool]) -> Opti
     let same_model = |m: &MonitorInfo| m.id.vendor == id.vendor && m.id.product == id.product;
     let indices = || (0..monitors.len()).filter(free);
 
+    let same_serial = |i: &usize| same_model(&monitors[*i]) && monitors[*i].id.serial == id.serial;
+    // A monitor split into several inputs (picture-by-picture) reports the
+    // same EDID on every input, so the port tells them apart.
     if id.serial.is_some()
-        && let Some(i) =
-            indices().find(|&i| same_model(&monitors[i]) && monitors[i].id.serial == id.serial)
+        && let Some(i) = indices()
+            .filter(same_serial)
+            .find(|&i| monitors[i].id.connector == id.connector)
+            .or_else(|| indices().find(same_serial))
     {
         return Some(i);
     }
@@ -303,6 +308,34 @@ mod tests {
         let resolved = resolve(&saved, &state, &caps());
         assert!(resolved.warnings.is_empty(), "{:?}", resolved.warnings);
         assert!(resolved.layout.output("DP-2").unwrap().primary);
+    }
+
+    #[test]
+    fn inputs_of_one_split_monitor_keep_their_ports() {
+        // Picture-by-picture: DP-1 and HDMI-A-1 are two halves of one monitor
+        // and report the same EDID, HDMI-A-1 listed first.
+        let mut state = sample_state();
+        let dell = state.monitors[1].clone();
+        state.monitors[2] = MonitorInfo {
+            id: MonitorId {
+                connector: "HDMI-A-1".into(),
+                ..dell.id.clone()
+            },
+            ..dell
+        };
+        state.monitors.swap(1, 2);
+        let mut saved = state.layout.clone();
+        for o in &mut saved.outputs {
+            if o.id.connector == "HDMI-A-1" {
+                o.id = state.monitors[1].id.clone();
+                o.mode = state.monitors[1].preferred_mode.unwrap();
+            }
+        }
+        let resolved = resolve(&saved, &state, &caps());
+        for (wanted, got) in saved.outputs.iter().zip(&resolved.layout.outputs) {
+            assert_eq!(wanted.id.connector, got.id.connector);
+            assert_eq!(wanted.position, got.position);
+        }
     }
 
     #[test]

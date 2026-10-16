@@ -5,6 +5,7 @@
 
 pub mod backend;
 pub mod backends;
+pub mod ddc;
 pub mod edid;
 pub mod error;
 pub mod layout;

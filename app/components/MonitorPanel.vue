@@ -77,6 +77,7 @@ const canDisable = computed(() =>
   !!caps.value?.disable
   && (!props.output.enabled || !!props.output.mirrorOf || store.issues.enabledCount > 1))
 const rect = computed(() => logicalRect(props.output))
+const split = computed(() => splitParts(store.outputs).get(connector.value) ?? null)
 
 // Screens this one can repeat: other screens with a place of their own.
 const mirrorSources = computed(() =>
@@ -99,6 +100,13 @@ function onDisplayMode(mirror: boolean) {
         <span v-if="output.primary && output.enabled" class="badge primary">★ Основной</span>
         <span v-if="monitor?.builtin" class="badge">Встроенный</span>
         <span v-if="diagonal" class="badge">{{ diagonal }}</span>
+        <span
+          v-if="split"
+          class="badge"
+          title="Экспериментально. Один физический монитор в режиме «картинка рядом с картинкой» (Samsung Odyssey и похожие): каждый вход — отдельный экран"
+        >
+          ◫ Часть {{ split.part }} из {{ split.total }} · с {{ split.siblings.join(', ') }} · эксперим.
+        </span>
       </p>
     </header>
 
